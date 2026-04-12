@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"testing"
+	"time"
 )
 
 // roundTripCommand takes a fully framed control command (stream frame wrapping
@@ -159,40 +160,55 @@ func TestBuildPasswordCommand(t *testing.T) {
 	}
 }
 
-func TestBuildTimeCommand(t *testing.T) {
-	tests := []struct {
-		name                    string
-		hour, minute, second    uint8
-	}{
-		{"midnight", 0, 0, 0},
-		{"noon", 12, 0, 0},
-		{"late_evening", 23, 59, 59},
+func TestBuildTimeSyncCommand(t *testing.T) {
+	// 2026-04-10 Friday 14:30:45
+	now := time.Date(2026, 4, 10, 14, 30, 45, 0, time.UTC)
+	frame := BuildTimeSyncCommand(now)
+	payload := roundTripCommand(t, frame)
+
+	// payload: [CMD_TIME_SYNC][year-2000][month][day][weekday_iso][hour][minute][second]
+	// No CRC appended.
+	if len(payload) != 8 {
+		t.Fatalf("payload length = %d, want 8", len(payload))
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			frame := BuildTimeCommand(tt.hour, tt.minute, tt.second)
-			payload := roundTripCommand(t, frame)
-
-			// payload: [CMD_TIME][hour][minute][second][CRC32 x4]
-			if len(payload) != 8 {
-				t.Fatalf("payload length = %d, want 8", len(payload))
-			}
-			if payload[0] != CMD_TIME {
-				t.Errorf("command code = 0x%02X, want 0x%02X", payload[0], CMD_TIME)
-			}
-			if payload[1] != tt.hour || payload[2] != tt.minute || payload[3] != tt.second {
-				t.Errorf("time = %d:%d:%d, want %d:%d:%d",
-					payload[1], payload[2], payload[3],
-					tt.hour, tt.minute, tt.second)
-			}
-
-			verifyCRC(t, payload)
-		})
+	if payload[0] != CMD_TIME_SYNC {
+		t.Errorf("command code = 0x%02X, want 0x%02X (CMD_TIME_SYNC)", payload[0], CMD_TIME_SYNC)
+	}
+	if payload[1] != 26 { // 2026 - 2000
+		t.Errorf("year = %d, want 26", payload[1])
+	}
+	if payload[2] != 4 { // April
+		t.Errorf("month = %d, want 4", payload[2])
+	}
+	if payload[3] != 10 {
+		t.Errorf("day = %d, want 10", payload[3])
+	}
+	if payload[4] != 5 { // Friday = ISO weekday 5
+		t.Errorf("weekday = %d, want 5 (Friday)", payload[4])
+	}
+	if payload[5] != 14 {
+		t.Errorf("hour = %d, want 14", payload[5])
+	}
+	if payload[6] != 30 {
+		t.Errorf("minute = %d, want 30", payload[6])
+	}
+	if payload[7] != 45 {
+		t.Errorf("second = %d, want 45", payload[7])
 	}
 }
 
-func TestBuildTimerCommand(t *testing.T) {
+func TestBuildTimeSyncCommand_Sunday(t *testing.T) {
+	// Sunday should map to ISO weekday 7
+	now := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC) // 2026-04-12 is Sunday
+	frame := BuildTimeSyncCommand(now)
+	payload := roundTripCommand(t, frame)
+
+	if payload[4] != 7 {
+		t.Errorf("Sunday weekday = %d, want 7", payload[4])
+	}
+}
+
+func TestBuildSetTimerCommand(t *testing.T) {
 	tests := []struct {
 		name  string
 		items []TimerItem
@@ -200,31 +216,31 @@ func TestBuildTimerCommand(t *testing.T) {
 		{
 			name: "single_item",
 			items: []TimerItem{
-				{Hour: 7, Minute: 30, On: true, Days: DayWeekdays},
+				{Enable: true, Hour: 7, Minute: 30, Days: DayWeekdays, PowerOn: true},
 			},
 		},
 		{
 			name: "multiple_items",
 			items: []TimerItem{
-				{Hour: 7, Minute: 0, On: true, Days: DayDaily},
-				{Hour: 22, Minute: 0, On: false, Days: DayDaily},
-				{Hour: 9, Minute: 15, On: true, Days: DayWeekends},
+				{Enable: true, Hour: 7, Minute: 0, Days: DayDaily, PowerOn: true},
+				{Enable: true, Hour: 22, Minute: 0, Days: DayDaily, PowerOn: false},
+				{Enable: false, Hour: 9, Minute: 15, Days: DayWeekends, PowerOn: true},
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			frame := BuildTimerCommand(tt.items)
+			frame := BuildSetTimerCommand(tt.items)
 			payload := roundTripCommand(t, frame)
 
-			if payload[0] != CMD_TIMER {
-				t.Errorf("command code = 0x%02X, want 0x%02X", payload[0], CMD_TIMER)
+			if payload[0] != CMD_SET_TIMER {
+				t.Errorf("command code = 0x%02X, want 0x%02X (CMD_SET_TIMER)", payload[0], CMD_SET_TIMER)
 			}
 
-			// payload: [CMD_TIMER][count][items...][CRC32 x4]
-			// Each item is 4 bytes: hour, minute, on/off, days
-			expectedLen := 1 + 1 + len(tt.items)*4 + 4
+			// payload: [CMD_SET_TIMER][count][per item: enable(1), hour(1), minute(1), days(1), power_on(1), 0x00]
+			// No CRC appended.
+			expectedLen := 1 + 1 + len(tt.items)*6
 			if len(payload) != expectedLen {
 				t.Fatalf("payload length = %d, want %d", len(payload), expectedLen)
 			}
@@ -234,27 +250,48 @@ func TestBuildTimerCommand(t *testing.T) {
 			}
 
 			for i, item := range tt.items {
-				off := 2 + i*4
-				if payload[off] != item.Hour {
-					t.Errorf("item[%d] hour = %d, want %d", i, payload[off], item.Hour)
+				off := 2 + i*6
+				wantEnable := byte(0x00)
+				if item.Enable {
+					wantEnable = 0x01
 				}
-				if payload[off+1] != item.Minute {
-					t.Errorf("item[%d] minute = %d, want %d", i, payload[off+1], item.Minute)
+				if payload[off] != wantEnable {
+					t.Errorf("item[%d] enable = 0x%02X, want 0x%02X", i, payload[off], wantEnable)
 				}
-				wantOn := byte(0x00)
-				if item.On {
-					wantOn = 0x01
+				if payload[off+1] != item.Hour {
+					t.Errorf("item[%d] hour = %d, want %d", i, payload[off+1], item.Hour)
 				}
-				if payload[off+2] != wantOn {
-					t.Errorf("item[%d] on = 0x%02X, want 0x%02X", i, payload[off+2], wantOn)
+				if payload[off+2] != item.Minute {
+					t.Errorf("item[%d] minute = %d, want %d", i, payload[off+2], item.Minute)
 				}
 				if payload[off+3] != item.Days {
 					t.Errorf("item[%d] days = 0x%02X, want 0x%02X", i, payload[off+3], item.Days)
 				}
+				wantPowerOn := byte(0x00)
+				if item.PowerOn {
+					wantPowerOn = 0x01
+				}
+				if payload[off+4] != wantPowerOn {
+					t.Errorf("item[%d] power_on = 0x%02X, want 0x%02X", i, payload[off+4], wantPowerOn)
+				}
+				if payload[off+5] != 0x00 {
+					t.Errorf("item[%d] padding = 0x%02X, want 0x00", i, payload[off+5])
+				}
 			}
-
-			verifyCRC(t, payload)
 		})
+	}
+}
+
+func TestBuildGetTimerCommand(t *testing.T) {
+	frame := BuildGetTimerCommand()
+	payload := roundTripCommand(t, frame)
+
+	// payload: [CMD_GET_TIMER] only, no CRC
+	if len(payload) != 1 {
+		t.Fatalf("payload length = %d, want 1", len(payload))
+	}
+	if payload[0] != CMD_GET_TIMER {
+		t.Errorf("command code = 0x%02X, want 0x%02X (CMD_GET_TIMER)", payload[0], CMD_GET_TIMER)
 	}
 }
 

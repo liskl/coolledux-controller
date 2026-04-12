@@ -43,6 +43,8 @@ The protocol details below were verified by live testing against a CoolLEDUX dev
 
 ## Command Codes (Verified)
 
+Verified against APK `com.jtkj.led1248` decompilation and confirmed on real hardware.
+
 | Command | Code | Payload | Verified |
 |---------|------|---------|----------|
 | BRIGHTNESS | `0x04` | `[value:1]` (0-255) | Yes, device echoes value in ACK |
@@ -50,21 +52,30 @@ The protocol details below were verified by live testing against a CoolLEDUX dev
 | CMD 0x06 | `0x06` | - | Device ignores ALL packets with this code |
 | CHANNEL | `0x07` | `[slot:1]` (program/channel index) | Yes, cycled channels 0-9 visually verified |
 | PROGRAM | `0x08` | See "Program Upload" below | Yes, device ACKs start + chunks |
-| PASSWORD | `0x09` | `[op:1][password_bytes...]` | ACK observed |
-| TIME | `0x0A` | `[hour:1][minute:1][second:1]` | ACK observed |
-| TIMER | `0x0B` | `[count:1][items...]` | ACK observed |
+| TIME_SYNC | `0x09` | `[year-2000:1][month:1][day:1][weekday_iso:1][hour:1][minute:1][second:1]` | Yes, verified via APK decompilation. No CRC. |
+| SET_TIMER | `0x0A` | `[count:1][per item: enable(1), hour(1), minute(1), days_bitmask(1), power_on(1), 0x00]` | Yes, verified via APK. No CRC. |
+| GET_TIMER | `0x0B` | Empty (request) | Yes, verified via APK. No CRC. |
 | FLIP | `0x0C` | `[mode:1]` 0=none, 1=H, 2=V, 3=both | Yes, all 4 modes visually verified |
 | INFO | `0x0D` | Empty (request) | ACK observed |
 | RESET | `0x0E` | Empty | ACK observed |
+
+**Note on PASSWORD (formerly 0x09):** The old protocol mapping had PASSWORD at 0x09, which conflicts with TIME_SYNC. The APK does not use a password command on this device/firmware. The PASSWORD constant is retained for reference but is unverified and likely invalid.
 
 **SDK vs Reality:**
 - SDK says BRIGHTNESS=0x06, device uses **0x04**
 - SDK says FLIP=0x07, device uses **0x0C** (SDK's 0x07 is actually channel/program switch)
 - SDK says OTA=0x0C, but 0x0C is actually FLIP on this device
 
-**Command packet format (all commands):**
+**Command packet format:**
+
+Most existing control commands use CRC and work (device ignores trailing bytes):
 ```
 stream_frame([CMD_CODE:1][data_bytes...][CRC32:4 LE])
+```
+
+The TIME_SYNC, SET_TIMER, and GET_TIMER commands do NOT use CRC, matching the APK behavior:
+```
+stream_frame([CMD_CODE:1][data_bytes...])
 ```
 
 ## Response Format
@@ -80,6 +91,9 @@ Observed response types:
 - `0x04` = Brightness ACK (echoes brightness value)
 - `0x05` = Power ACK (echoes power state)
 - `0x07` = Channel switch ACK
+- `0x09` = Time sync ACK
+- `0x0A` = Set timer ACK
+- `0x0B` = Get timer response (contains timer slot data)
 - `0x0C` = Flip ACK (echoes flip mode)
 - `0x0D` = Device info response
 

@@ -158,17 +158,23 @@ func (h *Handlers) SetChannel(c *fiber.Ctx) error {
 	return c.JSON(SuccessResponse{Success: true})
 }
 
-// SyncTime sets the device clock.
+// SyncTime sets the device clock. If no time fields are provided in the request
+// body (or the body is empty), the current system time is used.
 func (h *Handlers) SyncTime(c *fiber.Ctx) error {
 	var req TimeRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
-			Success: false,
-			Error:   "invalid request body: " + err.Error(),
-		})
+	// BodyParser may fail on empty body; that's fine, we default to now.
+	_ = c.BodyParser(&req)
+
+	var t time.Time
+	if req.Hour == 0 && req.Minute == 0 && req.Second == 0 {
+		t = time.Now()
+	} else {
+		now := time.Now()
+		t = time.Date(now.Year(), now.Month(), now.Day(),
+			int(req.Hour), int(req.Minute), int(req.Second), 0, now.Location())
 	}
 
-	if err := h.ctrl.SyncTime(c.Context(), req.Hour, req.Minute, req.Second); err != nil {
+	if err := h.ctrl.SyncTime(c.Context(), t); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -190,10 +196,11 @@ func (h *Handlers) SetTimers(c *fiber.Ctx) error {
 	items := make([]protocol.TimerItem, len(req.Items))
 	for i, item := range req.Items {
 		items[i] = protocol.TimerItem{
-			Hour:   item.Hour,
-			Minute: item.Minute,
-			On:     item.On,
-			Days:   item.Days,
+			Enable:  item.Enable,
+			Hour:    item.Hour,
+			Minute:  item.Minute,
+			Days:    item.Days,
+			PowerOn: item.PowerOn,
 		}
 	}
 
@@ -204,6 +211,21 @@ func (h *Handlers) SetTimers(c *fiber.Ctx) error {
 		})
 	}
 	return c.JSON(SuccessResponse{Success: true})
+}
+
+// GetTimers retrieves the device timer schedule as raw bytes.
+func (h *Handlers) GetTimers(c *fiber.Ctx) error {
+	resp, err := h.ctrl.GetTimers(c.Context())
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+	}
+	return c.JSON(fiber.Map{
+		"success": true,
+		"data":    resp,
+	})
 }
 
 // ResetDevice sends a factory reset command to the device.

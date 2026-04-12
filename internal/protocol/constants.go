@@ -6,17 +6,23 @@ import "time"
 var PacketHeader = [2]byte{0x52, 0x52}
 
 // Command codes (host to device).
+// Verified against APK com.jtkj.led1248 decompilation and real hardware.
 const (
 	CMD_BRIGHTNESS byte = 0x04 // Verified: device uses 0x04 (SDK docs say 0x06)
 	CMD_POWER      byte = 0x05 // Verified: matches SDK
 	CMD_CHANNEL    byte = 0x07 // Switches program/channel slot (SDK calls this "flip" but it isn't)
 	CMD_PROGRAM    byte = 0x08
-	CMD_PASSWORD   byte = 0x09
-	CMD_TIME       byte = 0x0A
-	CMD_TIMER      byte = 0x0B
+	CMD_TIME_SYNC  byte = 0x09 // Verified: APK sends year/month/day/weekday/h/m/s (no CRC)
+	CMD_SET_TIMER  byte = 0x0A // Verified: APK sends enable/hour/min/days/power_on/0x00 per slot (no CRC)
+	CMD_GET_TIMER  byte = 0x0B // Verified: APK sends bare command to read timer slots back
 	CMD_FLIP       byte = 0x0C // Verified: 0=none, 1=horizontal, 2=vertical, 3=both (SDK says 0x07)
 	CMD_INFO       byte = 0x0D
 	CMD_RESET      byte = 0x0E
+
+	// CMD_PASSWORD was previously mapped to 0x09, which conflicts with CMD_TIME_SYNC.
+	// The APK does not appear to use a password command on this device/firmware.
+	// Keeping the constant for reference but it may not be valid.
+	CMD_PASSWORD byte = 0x09 // UNVERIFIED: conflicts with CMD_TIME_SYNC, may not exist on this device
 )
 
 // Command types (Layer 1 BLE packet frame).
@@ -39,6 +45,9 @@ const (
 	RESPONSE_TYPE_BRIGHTNESS      byte = 0x04
 	RESPONSE_TYPE_POWER           byte = 0x05
 	RESPONSE_TYPE_CHANNEL         byte = 0x07
+	RESPONSE_TYPE_TIME_SYNC       byte = 0x09
+	RESPONSE_TYPE_SET_TIMER       byte = 0x0A
+	RESPONSE_TYPE_GET_TIMER       byte = 0x0B
 	RESPONSE_TYPE_FLIP            byte = 0x0C
 	RESPONSE_TYPE_PASSWORD_VERIFY byte = 0x0D
 	RESPONSE_TYPE_PASSWORD_SET    byte = 0x0E

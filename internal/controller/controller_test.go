@@ -441,13 +441,15 @@ func TestCheckResponse_WrongType(t *testing.T) {
 	}
 }
 
-func TestCheckResponse_ErrorStatus(t *testing.T) {
-	payload := []byte{protocol.RESPONSE_TYPE_POWER, protocol.STATUS_ERROR}
+func TestCheckResponse_EchoedValue(t *testing.T) {
+	// Device echoes the command value in the second byte (e.g. power ON returns
+	// [0x05, 0x01]). checkResponse only validates the type, not the value.
+	payload := []byte{protocol.RESPONSE_TYPE_POWER, 0x01}
 	frame := protocol.BuildStreamFrame(payload)
 
 	err := checkResponse(frame, protocol.RESPONSE_TYPE_POWER)
-	if err == nil {
-		t.Fatal("expected error for non-success status")
+	if err != nil {
+		t.Errorf("expected nil error for echoed value, got: %v", err)
 	}
 }
 
@@ -695,7 +697,7 @@ func TestSetFlip_NotConnected(t *testing.T) {
 
 func TestSyncTime_NotConnected(t *testing.T) {
 	ctrl := testController()
-	err := ctrl.SyncTime(context.Background(), 12, 30, 0)
+	err := ctrl.SyncTime(context.Background(), time.Now())
 	if err == nil {
 		t.Fatal("expected error from SyncTime when not connected")
 	}
@@ -704,12 +706,23 @@ func TestSyncTime_NotConnected(t *testing.T) {
 func TestSetTimers_NotConnected(t *testing.T) {
 	ctrl := testController()
 	items := []protocol.TimerItem{
-		{Hour: 8, Minute: 0, On: true, Days: protocol.DayDaily},
-		{Hour: 22, Minute: 0, On: false, Days: protocol.DayDaily},
+		{Enable: true, Hour: 8, Minute: 0, Days: protocol.DayDaily, PowerOn: true},
+		{Enable: true, Hour: 22, Minute: 0, Days: protocol.DayDaily, PowerOn: false},
 	}
 	err := ctrl.SetTimers(context.Background(), items)
 	if err == nil {
 		t.Fatal("expected error from SetTimers when not connected")
+	}
+}
+
+func TestGetTimers_NotConnected(t *testing.T) {
+	ctrl := testController()
+	resp, err := ctrl.GetTimers(context.Background())
+	if err == nil {
+		t.Fatal("expected error from GetTimers when not connected")
+	}
+	if resp != nil {
+		t.Error("expected nil response on error")
 	}
 }
 
@@ -958,7 +971,7 @@ func TestSyncTime_Connected(t *testing.T) {
 	// SyncTime doesn't check response type, just checks for error.
 	go func() { transport.InjectResponseForTest(fakeResponse(0x00)) }()
 
-	err := ctrl.SyncTime(context.Background(), 12, 30, 0)
+	err := ctrl.SyncTime(context.Background(), time.Now())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -971,11 +984,26 @@ func TestSetTimers_Connected(t *testing.T) {
 	go func() { transport.InjectResponseForTest(fakeResponse(0x00)) }()
 
 	items := []protocol.TimerItem{
-		{Hour: 8, Minute: 0, On: true, Days: protocol.DayDaily},
+		{Enable: true, Hour: 8, Minute: 0, Days: protocol.DayDaily, PowerOn: true},
 	}
 	err := ctrl.SetTimers(context.Background(), items)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestGetTimers_Connected(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+
+	go func() { transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_GET_TIMER)) }()
+
+	resp, err := ctrl.GetTimers(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp == nil {
+		t.Error("expected non-nil response")
 	}
 }
 

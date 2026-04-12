@@ -53,6 +53,7 @@ func NewServer(ctrl *controller.Controller, cfg *config.Config, logger *slog.Log
 	app.Post("/device/channel", h.SetChannel)
 	app.Post("/device/time", h.SyncTime)
 	app.Post("/device/timer", h.SetTimers)
+	app.Get("/device/timer", h.GetTimers)
 	app.Post("/device/reset", h.ResetDevice)
 
 	// Display

@@ -412,6 +412,8 @@ func TestDeviceInfo_Disconnected(t *testing.T) {
 func TestSyncTime_InvalidBody(t *testing.T) {
 	srv := testServer(t)
 
+	// SyncTime now accepts empty/invalid bodies and defaults to time.Now().
+	// With a disconnected BLE client, it falls through to a 500 (BLE send error).
 	body := strings.NewReader(`garbage`)
 	req, err := http.NewRequest(http.MethodPost, "/device/time", body)
 	if err != nil {
@@ -425,8 +427,8 @@ func TestSyncTime_InvalidBody(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected 500 (defaults to time.Now, fails at BLE), got %d", resp.StatusCode)
 	}
 }
 
@@ -636,7 +638,7 @@ func TestSyncTime_ValidBody_Disconnected(t *testing.T) {
 func TestSetTimers_ValidBody_Disconnected(t *testing.T) {
 	srv := testServer(t)
 
-	body := strings.NewReader(`{"items":[{"hour":8,"minute":0,"on":true,"days":127}]}`)
+	body := strings.NewReader(`{"items":[{"enable":true,"hour":8,"minute":0,"days":127,"power_on":true}]}`)
 	req, err := http.NewRequest(http.MethodPost, "/device/timer", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)

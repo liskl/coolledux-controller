@@ -37,10 +37,11 @@ type TimeRequest struct {
 
 // TimerItemRequest represents a single timer schedule entry.
 type TimerItemRequest struct {
-	Hour   uint8 `json:"hour"`
-	Minute uint8 `json:"minute"`
-	On     bool  `json:"on"`
-	Days   uint8 `json:"days"`
+	Enable  bool  `json:"enable"`
+	Hour    uint8 `json:"hour"`
+	Minute  uint8 `json:"minute"`
+	Days    uint8 `json:"days"`
+	PowerOn bool  `json:"power_on"`
 }
 
 // TimerRequest configures the device timer schedule.

@@ -138,26 +138,38 @@ func (c *Controller) SetChannel(ctx context.Context, channel uint8) error {
 	return nil
 }
 
-// SyncTime sets the device clock.
-func (c *Controller) SyncTime(ctx context.Context, hour, minute, second uint8) error {
-	cmd := protocol.BuildTimeCommand(hour, minute, second)
+// SyncTime sets the device clock to the given time.
+func (c *Controller) SyncTime(ctx context.Context, t time.Time) error {
+	cmd := protocol.BuildTimeSyncCommand(t)
 	_, err := c.transport.SendAndWait(ctx, cmd, protocol.CommandTimeout)
 	if err != nil {
 		return fmt.Errorf("syncing time: %w", err)
 	}
-	c.logger.Info("time synced", "hour", hour, "minute", minute, "second", second)
+	c.logger.Info("time synced", "time", t.Format(time.RFC3339))
 	return nil
 }
 
 // SetTimers configures the device's on/off timer schedule.
 func (c *Controller) SetTimers(ctx context.Context, items []protocol.TimerItem) error {
-	cmd := protocol.BuildTimerCommand(items)
+	cmd := protocol.BuildSetTimerCommand(items)
 	_, err := c.transport.SendAndWait(ctx, cmd, protocol.CommandTimeout)
 	if err != nil {
 		return fmt.Errorf("setting timers: %w", err)
 	}
 	c.logger.Info("timers set", "count", len(items))
 	return nil
+}
+
+// GetTimers sends a get-timer command and returns the raw response bytes.
+// The caller is responsible for parsing the device-specific timer slot data.
+func (c *Controller) GetTimers(ctx context.Context) ([]byte, error) {
+	cmd := protocol.BuildGetTimerCommand()
+	resp, err := c.transport.SendAndWait(ctx, cmd, protocol.CommandTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("getting timers: %w", err)
+	}
+	c.logger.Info("timers retrieved")
+	return resp, nil
 }
 
 // GetDeviceInfo requests and parses device identity and state information.

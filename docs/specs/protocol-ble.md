@@ -51,39 +51,68 @@ Verified against APK `com.jtkj.led1248` decompilation and confirmed on real hard
 |---------|------|---------|----------|
 | BRIGHTNESS | `0x04` | `[value:1]` (0-255) | Yes, device echoes value in ACK |
 | POWER | `0x05` | `[0x01]`=on, `[0x00]`=off | Yes, device sends ACK |
-| RHYTHM_TYPE | `0x06` | `[type:1]` | APK uses for rhythm/music mode. Device ignored brightness at this code. |
 | CHANNEL | `0x07` | `[slot:1]` (program/channel index) | Yes, cycled channels 0-9 visually verified |
 | PROGRAM | `0x08` | See "Program Upload" below | Yes, device ACKs start + chunks |
 | TIME_SYNC | `0x09` | `[year-2000][month][day][weekday_iso][hour][min][sec]` | Yes, timer fired after sync. No CRC. |
 | SET_TIMER | `0x0A` | `[count][per item: enable, hour, min, days, power_on, 0x00]` | Yes, timer fired. No CRC. |
 | GET_TIMER | `0x0B` | Empty (read back timer slots) | Yes, returns stored timer data. No CRC. |
 | MIRROR | `0x0C` | `[mode:1]` 0=none, 1=H, 2=V, 3=both | Yes, all 4 modes visually verified |
-| CHECK_PASSWORD | `0x0D` | `[random_key:1][xor_encoded_digits...]` | APK confirmed. Not hardware tested. |
-| SET_PASSWORD | `0x0E` | `[random_key:1][xor_encoded_digits...]` | APK confirmed. Not hardware tested. |
+| COUNTDOWN | `0x0F` | `[sub]` (see below) | Yes, visual countdown overlay on display |
+| STOPWATCH | `0x10` | `[sub]` (see below) | Yes, hourglass animation + timer display |
+| SET_COLOR | `0x13` | `[0x01][R_nibble:1][GB_nibble:1]` (RGB444) | Yes, red/green/white all changed display color |
+| DEVICE_INFO | `0x1F` | Empty (request) | Yes, returns 19 bytes of device state |
 
-### Extended Commands (APK Confirmed, Not Hardware Tested)
+### Countdown Timer (0x0F) -- Hardware Verified
 
-| Command | Code | Payload | Source |
-|---------|------|---------|--------|
-| COUNTDOWN_STATUS | `0x0F` | `[0x01]` (query) | APK |
-| COUNTDOWN_SET | `0x0F` | `[0x02][hour:2][min:2][sec:2]` | APK |
-| COUNTDOWN_START_STOP | `0x0F` | `[0x03][0x01 or 0x00]` | APK |
-| STOPWATCH_STATUS | `0x10` | `[0x01]` | APK |
-| STOPWATCH_RESET | `0x10` | `[0x02]` | APK |
-| STOPWATCH_START_STOP | `0x10` | `[0x03][0x01 or 0x00]` | APK |
-| SCOREBOARD_STATUS | `0x11` | `[0x01]` | APK |
-| SCOREBOARD_SET_SCORE | `0x11` | `[0x02][scoreA:2][scoreB:2][time:2]` | APK |
-| SCOREBOARD_SET_TIME | `0x11` | `[0x03][time:2][flag:1]` | APK |
-| SCOREBOARD_START_STOP | `0x11` | `[0x04][0x01 or 0x00]` | APK |
-| SET_COLOR | `0x13` | `[0x01][color_data...]` | APK |
-| SET_COLOR_MODE | `0x13` | `[0x03][palette_data...]` | APK |
-| DRIVE_STATE | `0x1C` | `[0x01][state:1]` | APK |
-| GET_DRIVE_STATE | `0x1C` | `[0x02]` | APK |
-| SET_PASSWORD_EXT | `0x1E` | Password variant | APK |
-| DEVICE_INFO | `0x1F` | Empty (request) | APK confirmed |
-| OTA_VERSION | `0xFD` | Empty (request) | APK |
-| OTA_START | `0xFE` | OTA init data | APK |
-| OTA_DATA | `0xFF` | Firmware chunk data | APK |
+| Sub-command | Payload | Result |
+|-------------|---------|--------|
+| Status | `[0x0F, 0x01]` | Returns current countdown state |
+| Set | `[0x0F, 0x02, hour:2, min:2, sec:2]` | Sets countdown value |
+| Start/Stop | `[0x0F, 0x03, 0x01 or 0x00]` | Starts/stops countdown. Displays blinking clock overlay. |
+
+### Stopwatch (0x10) -- Hardware Verified
+
+| Sub-command | Payload | Result |
+|-------------|---------|--------|
+| Status | `[0x10, 0x01]` | Returns current stopwatch state |
+| Reset | `[0x10, 0x02]` | Resets to 00:00:00 |
+| Start/Stop | `[0x10, 0x03, 0x01 or 0x00]` | Starts/stops. Shows hourglass animation while running. |
+
+### Color Control (0x13) -- Hardware Verified
+
+Sets the global display color for text/content. Uses RGB444 encoding (2 bytes: `[0x0R][0xGB]`).
+
+```
+[0x13, 0x01, R_nibble, GB_nibble]
+```
+
+Examples tested:
+- Red: `[0x13, 0x01, 0x0F, 0x00]`
+- Green: `[0x13, 0x01, 0x00, 0xF0]`
+- White: `[0x13, 0x01, 0x0F, 0xFF]`
+
+### Device Info (0x1F) -- Hardware Verified
+
+Returns 19 bytes of device state. Response (unescaped):
+```
+[1F][01][FF][00 00 00 00][01][09][01][04][03][00 00][01][00 00][0A][00]
+```
+Fields likely include: brightness (0xFF=255), power state, firmware version, display dimensions. Exact field mapping TBD.
+
+### Extended Commands (APK Confirmed)
+
+| Command | Code | Payload | Hardware |
+|---------|------|---------|----------|
+| RHYTHM_TYPE | `0x06` | `[type:1]` | No response. Likely needs microphone hardware. |
+| CHECK_PASSWORD | `0x0D` | `[random_key:1][xor_encoded_digits...]` | Not tested |
+| SET_PASSWORD | `0x0E` | `[random_key:1][xor_encoded_digits...]` | Not tested |
+| SCOREBOARD | `0x11` | `[sub][data...]` | ACKed but no visual output on this device |
+| SET_COLOR_MODE | `0x13` | `[0x03][palette_data...]` | Not tested |
+| DRIVE_STATE | `0x1C` | `[0x01][state:1]` / `[0x02]` | No response on this device |
+| SET_PASSWORD_EXT | `0x1E` | Password variant | Not tested |
+| OTA_VERSION | `0xFD` | Empty (request) | Not tested |
+| OTA_START | `0xFE` | OTA init data | Not tested |
+| OTA_DATA | `0xFF` | Firmware chunk data | Not tested |
 
 ### Password Encoding (from APK)
 
@@ -92,10 +121,6 @@ Passwords are NOT sent in plaintext. The APK XOR-encodes each digit:
 [CMD 0x0D or 0x0E][random_key:1][digit1 XOR key][digit2 XOR key]...
 ```
 Each password character is parsed as a hex nibble (0-F), then XOR'd with a random byte.
-
-### Device Info
-
-The APK uses `0x1F` for device info (not `0x0D` which is password check). Our earlier probe at `0x0D` may have been interpreted as a password check. The real device info command is `0x1F`.
 
 ### GIF Upload (Firmware v30+)
 

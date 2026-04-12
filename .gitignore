@@ -27,3 +27,6 @@ config.yaml
 
 # Claude Code local settings
 .claude/
+
+# Reference APK and decompiled source (third-party, not for distribution)
+references/

@@ -3,7 +3,7 @@ package protocol
 import "time"
 
 // TimerItem represents a single timer schedule entry.
-// Verified against APK com.jtkj.led1248 decompilation.
+// Verified against CoolLED 1248 Android app.
 type TimerItem struct {
 	Enable  bool  // whether this timer slot is active
 	Hour    uint8
@@ -68,9 +68,9 @@ func BuildPasswordCommand(password string, verify bool) []byte {
 	return buildControlCommand(cmdCode, data)
 }
 
-// BuildTimeSyncCommand builds a framed time-sync command matching the APK format.
-// The APK sends: stream_frame([0x09][year-2000][month][day][weekday_iso][hour][minute][second])
-// No CRC is appended (the APK never uses CRC for this command, verified on hardware).
+// BuildTimeSyncCommand builds a framed time-sync command matching the Android app format.
+// Format: stream_frame([0x09][year-2000][month][day][weekday_iso][hour][minute][second])
+// No CRC is appended (no CRC, verified on hardware).
 func BuildTimeSyncCommand(now time.Time) []byte {
 	inner := []byte{
 		CMD_TIME_SYNC,
@@ -93,8 +93,8 @@ func isoWeekday(wd time.Weekday) byte {
 	return byte(wd)
 }
 
-// BuildSetTimerCommand builds a framed set-timer command matching the APK format.
-// The APK sends: stream_frame([0x0A][count][per item: enable(1), hour(1), minute(1), days(1), power_on(1), 0x00])
+// BuildSetTimerCommand builds a framed set-timer command matching the Android app format.
+// Format: stream_frame([0x0A][count][per item: enable(1), hour(1), minute(1), days(1), power_on(1), 0x00])
 // No CRC is appended (verified on hardware).
 func BuildSetTimerCommand(items []TimerItem) []byte {
 	// Each item is 6 bytes: enable, hour, minute, days, power_on, 0x00
@@ -118,13 +118,13 @@ func BuildSetTimerCommand(items []TimerItem) []byte {
 }
 
 // BuildGetTimerCommand builds a framed get-timer command.
-// The APK sends: stream_frame([0x0B]) to read timer slots from the device.
+// Format: stream_frame([0x0B]) to read timer slots from the device.
 func BuildGetTimerCommand() []byte {
 	return BuildStreamFrame([]byte{CMD_GET_TIMER})
 }
 
 // BuildDeviceInfoCommand builds a framed device info request (0x1F).
-// The APK uses 0x1F for device info (not 0x0D which is password check).
+// The Android app uses 0x1F for device info (not 0x0D which is password check).
 func BuildDeviceInfoCommand() []byte {
 	return BuildStreamFrame([]byte{CMD_DEVICE_INFO})
 }

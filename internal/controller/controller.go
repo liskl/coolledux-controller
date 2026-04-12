@@ -200,7 +200,7 @@ func (c *Controller) GetDeviceInfo(ctx context.Context) (*models.DeviceInfo, err
 }
 
 // ResetDevice is a stub. The reset command code has not been verified from the
-// APK decompilation, so we refuse to send an unverified command.
+// Android app analysis, so we refuse to send an unverified command.
 func (c *Controller) ResetDevice(_ context.Context) error {
 	return fmt.Errorf("reset command not verified on this device")
 }
@@ -614,7 +614,7 @@ func checkProgramStartResponse(data []byte) error {
 
 // parseDeviceInfoResponse extracts DeviceInfo from a device info response.
 //
-// APK field mapping (DeviceManager.java, 0x1F response):
+// Device info field mapping (0x1F response, verified on hardware):
 //
 //	payload[0]  = 0x1F (command/response type)
 //	payload[1]  = power (0=off, 1=on)

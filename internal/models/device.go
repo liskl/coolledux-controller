@@ -1,7 +1,7 @@
 package models
 
 // DeviceInfo holds the current state and identity of the LED matrix device.
-// Field mapping verified from APK DeviceManager.java (0x1F response parsing).
+// Field mapping verified from the CoolLED 1248 Android app and real hardware.
 type DeviceInfo struct {
 	// Current state (from 0x1F response)
 	Power            bool     `json:"power"`

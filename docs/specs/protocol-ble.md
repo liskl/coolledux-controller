@@ -43,7 +43,7 @@ The protocol details below were verified by live testing against a CoolLEDUX dev
 
 ## Command Codes
 
-Verified against APK `com.jtkj.led1248` decompilation and confirmed on real hardware where noted.
+Verified against the CoolLED 1248 Android app and confirmed on real hardware where noted.
 
 ### Core Commands (Hardware Verified)
 
@@ -95,7 +95,7 @@ Examples tested:
 
 Send `stream_frame([0x1F])`. Returns 19+ bytes of device state.
 
-Field mapping (from APK `DeviceManager.java` line 4247, verified on hardware):
+Field mapping (verified on hardware):
 
 | Index | Field | Type | Example | Notes |
 |-------|-------|------|---------|-------|
@@ -114,7 +114,7 @@ Field mapping (from APK `DeviceManager.java` line 4247, verified on hardware):
 
 Our device: power=ON, brightness=255, no mic, 10 program slots, remote enabled. The `mic_supported=0` confirms why rhythm commands (0x06) had no effect.
 
-### Extended Commands (APK Confirmed)
+### Extended Commands (From Android App, Not Hardware Tested)
 
 | Command | Code | Payload | Hardware |
 |---------|------|---------|----------|
@@ -129,9 +129,9 @@ Our device: power=ON, brightness=255, no mic, 10 program slots, remote enabled. 
 | OTA_START | `0xFE` | OTA init data | Not tested |
 | OTA_DATA | `0xFF` | Firmware chunk data | Not tested |
 
-### Password Encoding (from APK)
+### Password Encoding
 
-Passwords are NOT sent in plaintext. The APK XOR-encodes each digit:
+Passwords are NOT sent in plaintext. The Android app XOR-encodes each digit:
 ```
 [CMD 0x0D or 0x0E][random_key:1][digit1 XOR key][digit2 XOR key]...
 ```
@@ -139,7 +139,7 @@ Each password character is parsed as a hex nibble (0-F), then XOR'd with a rando
 
 ### GIF Upload (Firmware v30+)
 
-For devices with firmware version >= 30, the APK can upload raw GIF files using content type `0x0C`:
+For devices with firmware version >= 30, the Android app uploads raw GIF files using content type `0x0C`:
 ```
 [0x0C][0x00 x 7][layerType][0x00]
 [startCol:2][startRow:2][showWidth:2][showHeight:2]
@@ -149,12 +149,12 @@ This is an alternative to the frame-by-frame animation upload (content type `0x0
 
 ### Command Packet Format
 
-The APK never uses CRC for simple commands. All commands are:
+The Android app never uses CRC for simple commands. All commands are:
 ```
 stream_frame([CMD_CODE:1][data_bytes...])
 ```
 
-Our Go service adds CRC to some commands (brightness, power, flip, channel) which still works because the device ignores trailing bytes. But the canonical format from the APK has no CRC.
+Our Go service adds CRC to some commands (brightness, power, flip, channel) which still works because the device ignores trailing bytes. But the canonical format has no CRC.
 
 CRC32 and XOR checksums are only used for:
 - Program upload start packets (CRC32 over raw program data)

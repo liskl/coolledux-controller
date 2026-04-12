@@ -6,19 +6,19 @@ import "time"
 var PacketHeader = [2]byte{0x52, 0x52}
 
 // Command codes (host to device).
-// Verified against APK com.jtkj.led1248 decompilation and real hardware.
+// Verified against the CoolLED 1248 Android app and real hardware.
 const (
 	CMD_BRIGHTNESS byte = 0x04 // Verified: device uses 0x04 (SDK docs say 0x06)
 	CMD_POWER      byte = 0x05 // Verified: matches SDK
 	CMD_CHANNEL    byte = 0x07 // Switches program/channel slot (SDK calls this "flip" but it isn't)
 	CMD_PROGRAM    byte = 0x08
-	CMD_TIME_SYNC  byte = 0x09 // Verified: APK sends year/month/day/weekday/h/m/s (no CRC)
-	CMD_SET_TIMER  byte = 0x0A // Verified: APK sends enable/hour/min/days/power_on/0x00 per slot (no CRC)
-	CMD_GET_TIMER  byte = 0x0B // Verified: APK sends bare command to read timer slots back
+	CMD_TIME_SYNC  byte = 0x09 // Verified: year/month/day/weekday/h/m/s (no CRC)
+	CMD_SET_TIMER  byte = 0x0A // Verified: enable/hour/min/days/power_on/0x00 per slot (no CRC)
+	CMD_GET_TIMER  byte = 0x0B // Verified: bare command to read timer slots back
 	CMD_FLIP       byte = 0x0C // Verified: 0=none, 1=horizontal, 2=vertical, 3=both (SDK says 0x07)
-	CMD_CHECK_PASSWORD byte = 0x0D // APK: password check with XOR encoding
-	CMD_SET_PASSWORD   byte = 0x0E // APK: password set with XOR encoding
-	CMD_DEVICE_INFO    byte = 0x1F // Verified: APK uses 0x1F (not 0x0D)
+	CMD_CHECK_PASSWORD byte = 0x0D // Password check with XOR encoding
+	CMD_SET_PASSWORD   byte = 0x0E // Password set with XOR encoding
+	CMD_DEVICE_INFO    byte = 0x1F // Verified: 0x1F (not 0x0D)
 )
 
 // Command types (Layer 1 BLE packet frame).

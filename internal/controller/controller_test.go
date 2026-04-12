@@ -491,7 +491,7 @@ func TestCheckResponse_MalformedInner(t *testing.T) {
 // ---------- parseDeviceInfoResponse Tests ----------
 
 func TestParseDeviceInfoResponse_Full(t *testing.T) {
-	// Build a device info response matching APK format:
+	// Build a device info response matching device format:
 	// [0x1F][power][brightness][mirror][mic_sup][mic_on][mic_mode][show_id][max_prog][remote][extended...]
 	payload := []byte{
 		protocol.RESPONSE_TYPE_DEVICE_INFO,
@@ -961,7 +961,7 @@ func TestGetDeviceInfo_Connected(t *testing.T) {
 	ctrl, transport, client := connectedController()
 	defer client.OverrideConnectedForTest(false)
 
-	// Build a device info response in the new APK format.
+	// Build a device info response in the verified device format.
 	payload := []byte{
 		protocol.RESPONSE_TYPE_DEVICE_INFO,
 		0x01, // power on

@@ -1,0 +1,29 @@
+# Compiled binaries (root only)
+/coolledux-controller
+/bletest
+*.exe
+*.test
+
+# Debug/test tool sources (not part of the service)
+cmd/bletest/
+cmd/crctest/
+
+# IDE and editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+
+# Config with secrets (example is tracked)
+config.yaml
+!config.example.yaml
+
+# Claude Code local settings
+.claude/

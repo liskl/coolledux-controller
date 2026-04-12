@@ -1,0 +1,34 @@
+ble:
+  device_name: "CoolLEDUX"
+  device_mac: "01:00:00:FB:A4:16"
+  service_uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+  char_uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+  device_service_uuid: "9056aa8d-24a1-427e-ae91-b70e0bf992cd"
+  scan_timeout: "10s"
+  reconnect_interval: "5s"
+
+display:
+  columns: 96
+  rows: 16
+  default_brightness: 128
+  default_font_size: 16
+  default_color: "#FFFFFF"
+  default_speed: 5
+
+mqtt:
+  broker: "tcp://localhost:1883"
+  client_id: "coolledux-controller"
+  username: ""
+  password: ""
+  topic_prefix: "coolledux"
+  ha_discovery_prefix: "homeassistant"
+  keepalive: "30s"
+
+api:
+  listen: ":8080"
+  cors_origins:
+    - "*"
+
+log:
+  level: "info"     # debug, info, warn, error
+  format: "json"    # json, text

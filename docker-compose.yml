@@ -1,0 +1,24 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto_data:/mosquitto/data
+
+  coolledux:
+    build: .
+    network_mode: host
+    privileged: true
+    depends_on:
+      - mosquitto
+    volumes:
+      - /var/run/dbus:/var/run/dbus
+      - ./config.yaml:/etc/coolledux/config.yaml
+    environment:
+      COOLLEDUX_MQTT_BROKER: "tcp://127.0.0.1:1883"
+    restart: unless-stopped
+
+volumes:
+  mosquitto_data:

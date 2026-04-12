@@ -30,3 +30,6 @@ config.yaml
 
 # Reference APK and decompiled source (third-party, not for distribution)
 references/
+
+# Local-only Claude instructions
+CLAUDE.local.md

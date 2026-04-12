@@ -93,11 +93,26 @@ Examples tested:
 
 ### Device Info (0x1F) -- Hardware Verified
 
-Returns 19 bytes of device state. Response (unescaped):
-```
-[1F][01][FF][00 00 00 00][01][09][01][04][03][00 00][01][00 00][0A][00]
-```
-Fields likely include: brightness (0xFF=255), power state, firmware version, display dimensions. Exact field mapping TBD.
+Send `stream_frame([0x1F])`. Returns 19+ bytes of device state.
+
+Field mapping (from APK `DeviceManager.java` line 4247, verified on hardware):
+
+| Index | Field | Type | Example | Notes |
+|-------|-------|------|---------|-------|
+| 0 | command_type | byte | 0x1F | Always 0x1F |
+| 1 | power_on_off | bool | 0x01 | 0=off, 1=on |
+| 2 | brightness | uint8 | 0xFF | 0-255 |
+| 3 | rotate_mirror | uint8 | 0x00 | Mirror mode (0=none, 1=H, 2=V, 3=both) |
+| 4 | mic_supported | bool | 0x00 | 0=no mic hardware, 1=has mic |
+| 5 | mic_on_off | bool | 0x00 | Mic enabled |
+| 6 | mic_mode | uint8 | 0x00 | Rhythm/mic mode |
+| 7 | show_device_id | bool | 0x01 | Display device ID on screen |
+| 8 | max_program_number | uint8 | 0x09 | Max program slots (0-9 = 10 channels) |
+| 9 | remote_enable | bool | 0x01 | Remote control enabled |
+| 10-18 | extended | bytes | - | Unknown, possibly fw version, hw rev |
+| 19-20 | package_size | uint16 BE | (absent) | Custom chunk size (only if response is 21 bytes) |
+
+Our device: power=ON, brightness=255, no mic, 10 program slots, remote enabled. The `mic_supported=0` confirms why rhythm commands (0x06) had no effect.
 
 ### Extended Commands (APK Confirmed)
 

@@ -41,42 +41,85 @@ The protocol details below were verified by live testing against a CoolLEDUX dev
 
 **The `[0x52,0x52]` BLE packet header described in the Python SDK is NOT used.** The device ignores packets with that header. All packets are stream-framed only.
 
-## Command Codes (Verified)
+## Command Codes
 
-Verified against APK `com.jtkj.led1248` decompilation and confirmed on real hardware.
+Verified against APK `com.jtkj.led1248` decompilation and confirmed on real hardware where noted.
+
+### Core Commands (Hardware Verified)
 
 | Command | Code | Payload | Verified |
 |---------|------|---------|----------|
 | BRIGHTNESS | `0x04` | `[value:1]` (0-255) | Yes, device echoes value in ACK |
 | POWER | `0x05` | `[0x01]`=on, `[0x00]`=off | Yes, device sends ACK |
-| CMD 0x06 | `0x06` | - | Device ignores ALL packets with this code |
+| RHYTHM_TYPE | `0x06` | `[type:1]` | APK uses for rhythm/music mode. Device ignored brightness at this code. |
 | CHANNEL | `0x07` | `[slot:1]` (program/channel index) | Yes, cycled channels 0-9 visually verified |
 | PROGRAM | `0x08` | See "Program Upload" below | Yes, device ACKs start + chunks |
-| TIME_SYNC | `0x09` | `[year-2000:1][month:1][day:1][weekday_iso:1][hour:1][minute:1][second:1]` | Yes, verified via APK decompilation. No CRC. |
-| SET_TIMER | `0x0A` | `[count:1][per item: enable(1), hour(1), minute(1), days_bitmask(1), power_on(1), 0x00]` | Yes, verified via APK. No CRC. |
-| GET_TIMER | `0x0B` | Empty (request) | Yes, verified via APK. No CRC. |
-| FLIP | `0x0C` | `[mode:1]` 0=none, 1=H, 2=V, 3=both | Yes, all 4 modes visually verified |
-| INFO | `0x0D` | Empty (request) | ACK observed |
-| RESET | `0x0E` | Empty | ACK observed |
+| TIME_SYNC | `0x09` | `[year-2000][month][day][weekday_iso][hour][min][sec]` | Yes, timer fired after sync. No CRC. |
+| SET_TIMER | `0x0A` | `[count][per item: enable, hour, min, days, power_on, 0x00]` | Yes, timer fired. No CRC. |
+| GET_TIMER | `0x0B` | Empty (read back timer slots) | Yes, returns stored timer data. No CRC. |
+| MIRROR | `0x0C` | `[mode:1]` 0=none, 1=H, 2=V, 3=both | Yes, all 4 modes visually verified |
+| CHECK_PASSWORD | `0x0D` | `[random_key:1][xor_encoded_digits...]` | APK confirmed. Not hardware tested. |
+| SET_PASSWORD | `0x0E` | `[random_key:1][xor_encoded_digits...]` | APK confirmed. Not hardware tested. |
 
-**Note on PASSWORD (formerly 0x09):** The old protocol mapping had PASSWORD at 0x09, which conflicts with TIME_SYNC. The APK does not use a password command on this device/firmware. The PASSWORD constant is retained for reference but is unverified and likely invalid.
+### Extended Commands (APK Confirmed, Not Hardware Tested)
 
-**SDK vs Reality:**
-- SDK says BRIGHTNESS=0x06, device uses **0x04**
-- SDK says FLIP=0x07, device uses **0x0C** (SDK's 0x07 is actually channel/program switch)
-- SDK says OTA=0x0C, but 0x0C is actually FLIP on this device
+| Command | Code | Payload | Source |
+|---------|------|---------|--------|
+| COUNTDOWN_STATUS | `0x0F` | `[0x01]` (query) | APK |
+| COUNTDOWN_SET | `0x0F` | `[0x02][hour:2][min:2][sec:2]` | APK |
+| COUNTDOWN_START_STOP | `0x0F` | `[0x03][0x01 or 0x00]` | APK |
+| STOPWATCH_STATUS | `0x10` | `[0x01]` | APK |
+| STOPWATCH_RESET | `0x10` | `[0x02]` | APK |
+| STOPWATCH_START_STOP | `0x10` | `[0x03][0x01 or 0x00]` | APK |
+| SCOREBOARD_STATUS | `0x11` | `[0x01]` | APK |
+| SCOREBOARD_SET_SCORE | `0x11` | `[0x02][scoreA:2][scoreB:2][time:2]` | APK |
+| SCOREBOARD_SET_TIME | `0x11` | `[0x03][time:2][flag:1]` | APK |
+| SCOREBOARD_START_STOP | `0x11` | `[0x04][0x01 or 0x00]` | APK |
+| SET_COLOR | `0x13` | `[0x01][color_data...]` | APK |
+| SET_COLOR_MODE | `0x13` | `[0x03][palette_data...]` | APK |
+| DRIVE_STATE | `0x1C` | `[0x01][state:1]` | APK |
+| GET_DRIVE_STATE | `0x1C` | `[0x02]` | APK |
+| SET_PASSWORD_EXT | `0x1E` | Password variant | APK |
+| DEVICE_INFO | `0x1F` | Empty (request) | APK confirmed |
+| OTA_VERSION | `0xFD` | Empty (request) | APK |
+| OTA_START | `0xFE` | OTA init data | APK |
+| OTA_DATA | `0xFF` | Firmware chunk data | APK |
 
-**Command packet format:**
+### Password Encoding (from APK)
 
-Most existing control commands use CRC and work (device ignores trailing bytes):
+Passwords are NOT sent in plaintext. The APK XOR-encodes each digit:
 ```
-stream_frame([CMD_CODE:1][data_bytes...][CRC32:4 LE])
+[CMD 0x0D or 0x0E][random_key:1][digit1 XOR key][digit2 XOR key]...
 ```
+Each password character is parsed as a hex nibble (0-F), then XOR'd with a random byte.
 
-The TIME_SYNC, SET_TIMER, and GET_TIMER commands do NOT use CRC, matching the APK behavior:
+### Device Info
+
+The APK uses `0x1F` for device info (not `0x0D` which is password check). Our earlier probe at `0x0D` may have been interpreted as a password check. The real device info command is `0x1F`.
+
+### GIF Upload (Firmware v30+)
+
+For devices with firmware version >= 30, the APK can upload raw GIF files using content type `0x0C`:
+```
+[0x0C][0x00 x 7][layerType][0x00]
+[startCol:2][startRow:2][showWidth:2][showHeight:2]
+[gifFileSize:4][gifFileData...]
+```
+This is an alternative to the frame-by-frame animation upload (content type `0x03`).
+
+### Command Packet Format
+
+The APK never uses CRC for simple commands. All commands are:
 ```
 stream_frame([CMD_CODE:1][data_bytes...])
 ```
+
+Our Go service adds CRC to some commands (brightness, power, flip, channel) which still works because the device ignores trailing bytes. But the canonical format from the APK has no CRC.
+
+CRC32 and XOR checksums are only used for:
+- Program upload start packets (CRC32 over raw program data)
+- Program data chunk packets (XOR checksum)
+- OTA firmware upload packets
 
 ## Response Format
 

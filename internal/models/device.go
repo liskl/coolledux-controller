@@ -1,24 +1,24 @@
 package models
 
 // DeviceInfo holds the current state and identity of the LED matrix device.
+// Field mapping verified from APK DeviceManager.java (0x1F response parsing).
 type DeviceInfo struct {
-	// Identity
-	Model           string `json:"model"`
-	FirmwareVersion string `json:"firmware_version"`
-	HardwareVersion string `json:"hardware_version"`
-	SerialNumber    string `json:"serial_number"`
+	// Current state (from 0x1F response)
+	Power            bool     `json:"power"`
+	Brightness       uint8    `json:"brightness"`
+	FlipMode         FlipMode `json:"flip_mode"`
+	MicSupported     bool     `json:"mic_supported"`
+	MicEnabled       bool     `json:"mic_enabled"`
+	MicMode          uint8    `json:"mic_mode"`
+	ShowDeviceID     bool     `json:"show_device_id"`
+	MaxProgramNumber uint8    `json:"max_program_number"`
+	RemoteEnabled    bool     `json:"remote_enabled"`
 
-	// Display dimensions
-	Columns int `json:"columns"`
-	Rows    int `json:"rows"`
+	// Extended fields (indices 10-18, not fully mapped)
+	ExtendedData []byte `json:"extended_data,omitempty"`
 
-	// Current state
-	Power      bool     `json:"power"`
-	Brightness uint8    `json:"brightness"`
-	FlipMode   FlipMode `json:"flip_mode"`
-
-	// BLE connection info
-	BLEAddress string `json:"ble_address"`
-	BLEName    string `json:"ble_name"`
+	// BLE connection info (populated by the service, not from device response)
+	BLEAddress string `json:"ble_address,omitempty"`
+	BLEName    string `json:"ble_name,omitempty"`
 	Connected  bool   `json:"connected"`
 }

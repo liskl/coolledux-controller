@@ -491,28 +491,21 @@ func TestCheckResponse_MalformedInner(t *testing.T) {
 // ---------- parseDeviceInfoResponse Tests ----------
 
 func TestParseDeviceInfoResponse_Full(t *testing.T) {
-	// Build a device info response payload:
-	// [type=0x1F][status=0x00][model\0][fw\0][hw\0][serial\0][cols:2BE][rows:2BE][power][brightness][flip]
-	var payload []byte
-	payload = append(payload, protocol.RESPONSE_TYPE_DEVICE_INFO, protocol.STATUS_SUCCESS)
-	payload = append(payload, []byte("CoolLED")...)
-	payload = append(payload, 0x00)
-	payload = append(payload, []byte("1.2.3")...)
-	payload = append(payload, 0x00)
-	payload = append(payload, []byte("2.0")...)
-	payload = append(payload, 0x00)
-	payload = append(payload, []byte("SN12345")...)
-	payload = append(payload, 0x00)
-	// Columns = 96 (BE)
-	payload = append(payload, 0x00, 96)
-	// Rows = 16 (BE)
-	payload = append(payload, 0x00, 16)
-	// Power = on
-	payload = append(payload, 0x01)
-	// Brightness = 200
-	payload = append(payload, 200)
-	// Flip = horizontal (1)
-	payload = append(payload, 0x01)
+	// Build a device info response matching APK format:
+	// [0x1F][power][brightness][mirror][mic_sup][mic_on][mic_mode][show_id][max_prog][remote][extended...]
+	payload := []byte{
+		protocol.RESPONSE_TYPE_DEVICE_INFO,
+		0x01, // power = on
+		200,  // brightness
+		0x01, // flip/mirror = horizontal
+		0x01, // mic_supported = true
+		0x01, // mic_enabled = true
+		0x03, // mic_mode = 3
+		0x00, // show_device_id = false
+		0x08, // max_program_number = 8
+		0x01, // remote_enabled = true
+		0xAA, 0xBB, // extended data
+	}
 
 	frame := protocol.BuildStreamFrame(payload)
 
@@ -521,24 +514,6 @@ func TestParseDeviceInfoResponse_Full(t *testing.T) {
 		t.Fatalf("parseDeviceInfoResponse: %v", err)
 	}
 
-	if info.Model != "CoolLED" {
-		t.Errorf("Model = %q, want %q", info.Model, "CoolLED")
-	}
-	if info.FirmwareVersion != "1.2.3" {
-		t.Errorf("FirmwareVersion = %q, want %q", info.FirmwareVersion, "1.2.3")
-	}
-	if info.HardwareVersion != "2.0" {
-		t.Errorf("HardwareVersion = %q, want %q", info.HardwareVersion, "2.0")
-	}
-	if info.SerialNumber != "SN12345" {
-		t.Errorf("SerialNumber = %q, want %q", info.SerialNumber, "SN12345")
-	}
-	if info.Columns != 96 {
-		t.Errorf("Columns = %d, want 96", info.Columns)
-	}
-	if info.Rows != 16 {
-		t.Errorf("Rows = %d, want 16", info.Rows)
-	}
 	if !info.Power {
 		t.Error("Power should be true")
 	}
@@ -547,6 +522,27 @@ func TestParseDeviceInfoResponse_Full(t *testing.T) {
 	}
 	if info.FlipMode != models.FlipModeHorizontal {
 		t.Errorf("FlipMode = %d, want FlipModeHorizontal", info.FlipMode)
+	}
+	if !info.MicSupported {
+		t.Error("MicSupported should be true")
+	}
+	if !info.MicEnabled {
+		t.Error("MicEnabled should be true")
+	}
+	if info.MicMode != 3 {
+		t.Errorf("MicMode = %d, want 3", info.MicMode)
+	}
+	if info.ShowDeviceID {
+		t.Error("ShowDeviceID should be false")
+	}
+	if info.MaxProgramNumber != 8 {
+		t.Errorf("MaxProgramNumber = %d, want 8", info.MaxProgramNumber)
+	}
+	if !info.RemoteEnabled {
+		t.Error("RemoteEnabled should be true")
+	}
+	if !bytes.Equal(info.ExtendedData, []byte{0xAA, 0xBB}) {
+		t.Errorf("ExtendedData = %v, want [0xAA 0xBB]", info.ExtendedData)
 	}
 	if !info.Connected {
 		t.Error("Connected should be true")
@@ -569,17 +565,9 @@ func TestParseDeviceInfoResponse_WrongType(t *testing.T) {
 	}
 }
 
-func TestParseDeviceInfoResponse_ErrorStatus(t *testing.T) {
-	data := []byte{protocol.RESPONSE_TYPE_DEVICE_INFO, protocol.STATUS_ERROR}
-	_, err := parseDeviceInfoResponse(data)
-	if err == nil {
-		t.Fatal("expected error for error status")
-	}
-}
-
-func TestParseDeviceInfoResponse_MinimalSuccess(t *testing.T) {
-	// Type + success status + no further data.
-	data := []byte{protocol.RESPONSE_TYPE_DEVICE_INFO, protocol.STATUS_SUCCESS}
+func TestParseDeviceInfoResponse_MinimalPayload(t *testing.T) {
+	// Type byte + power byte only, all other fields missing.
+	data := []byte{protocol.RESPONSE_TYPE_DEVICE_INFO, 0x01}
 	info, err := parseDeviceInfoResponse(data)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -587,85 +575,33 @@ func TestParseDeviceInfoResponse_MinimalSuccess(t *testing.T) {
 	if info == nil {
 		t.Fatal("info is nil")
 	}
-	if info.Model != "" {
-		t.Errorf("Model = %q, want empty", info.Model)
+	if !info.Power {
+		t.Error("Power should be true")
+	}
+	if info.Brightness != 0 {
+		t.Errorf("Brightness = %d, want 0 (not enough data)", info.Brightness)
 	}
 }
 
-func TestParseDeviceInfoResponse_PartialNumericFields(t *testing.T) {
-	// Provide strings but only columns (not rows, power, brightness, flip).
-	var payload []byte
-	payload = append(payload, protocol.RESPONSE_TYPE_DEVICE_INFO, protocol.STATUS_SUCCESS)
-	payload = append(payload, 'X', 0x00) // model
-	payload = append(payload, 'Y', 0x00) // firmware
-	payload = append(payload, 'Z', 0x00) // hardware
-	payload = append(payload, 'W', 0x00) // serial
-	payload = append(payload, 0x00, 64)  // columns = 64
+func TestParseDeviceInfoResponse_PartialFields(t *testing.T) {
+	// Type + power + brightness + flip only.
+	payload := []byte{protocol.RESPONSE_TYPE_DEVICE_INFO, 0x00, 128, 0x02}
 
 	info, err := parseDeviceInfoResponse(payload)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if info.Model != "X" {
-		t.Errorf("Model = %q, want %q", info.Model, "X")
+	if info.Power {
+		t.Error("Power should be false")
 	}
-	if info.Columns != 64 {
-		t.Errorf("Columns = %d, want 64", info.Columns)
+	if info.Brightness != 128 {
+		t.Errorf("Brightness = %d, want 128", info.Brightness)
 	}
-	if info.Rows != 0 {
-		t.Errorf("Rows = %d, want 0 (not enough data)", info.Rows)
+	if info.FlipMode != models.FlipModeVertical {
+		t.Errorf("FlipMode = %d, want FlipModeVertical", info.FlipMode)
 	}
-}
-
-// ---------- extractNullString Tests ----------
-
-func TestExtractNullString_Normal(t *testing.T) {
-	data := []byte("hello\x00world\x00")
-	s := extractNullString(&data)
-	if s != "hello" {
-		t.Errorf("got %q, want %q", s, "hello")
-	}
-	// Remaining data should be "world\x00".
-	if !bytes.Equal(data, []byte("world\x00")) {
-		t.Errorf("remaining = %v, want 'world\\x00'", data)
-	}
-}
-
-func TestExtractNullString_NoTerminator(t *testing.T) {
-	data := []byte("noterm")
-	s := extractNullString(&data)
-	if s != "noterm" {
-		t.Errorf("got %q, want %q", s, "noterm")
-	}
-	if data != nil {
-		t.Errorf("remaining should be nil, got %v", data)
-	}
-}
-
-func TestExtractNullString_Empty(t *testing.T) {
-	data := []byte{}
-	s := extractNullString(&data)
-	if s != "" {
-		t.Errorf("got %q, want empty", s)
-	}
-}
-
-func TestExtractNullString_StartsWithNull(t *testing.T) {
-	data := []byte{0x00, 0x41, 0x42}
-	s := extractNullString(&data)
-	if s != "" {
-		t.Errorf("got %q, want empty", s)
-	}
-	if !bytes.Equal(data, []byte{0x41, 0x42}) {
-		t.Errorf("remaining = %v, want [0x41 0x42]", data)
-	}
-}
-
-func TestExtractNullString_Nil(t *testing.T) {
-	var data []byte
-	s := extractNullString(&data)
-	if s != "" {
-		t.Errorf("got %q, want empty", s)
+	if info.MicSupported {
+		t.Error("MicSupported should be false (not enough data)")
 	}
 }
 
@@ -737,11 +673,14 @@ func TestGetDeviceInfo_NotConnected(t *testing.T) {
 	}
 }
 
-func TestResetDevice_NotConnected(t *testing.T) {
+func TestResetDevice_Stub(t *testing.T) {
 	ctrl := testController()
 	err := ctrl.ResetDevice(context.Background())
 	if err == nil {
-		t.Fatal("expected error from ResetDevice when not connected")
+		t.Fatal("expected error from ResetDevice stub")
+	}
+	if err.Error() != "reset command not verified on this device" {
+		t.Errorf("unexpected error: %v", err)
 	}
 }
 
@@ -1007,15 +946,14 @@ func TestGetTimers_Connected(t *testing.T) {
 	}
 }
 
-func TestResetDevice_Connected(t *testing.T) {
-	ctrl, transport, client := connectedController()
+func TestResetDevice_Connected_StillStubbed(t *testing.T) {
+	ctrl, _, client := connectedController()
 	defer client.OverrideConnectedForTest(false)
 
-	go func() { transport.InjectResponseForTest(fakeResponse(0x00)) }()
-
+	// Even when connected, ResetDevice returns an error because the command is not verified.
 	err := ctrl.ResetDevice(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected error from ResetDevice stub")
 	}
 }
 
@@ -1023,22 +961,19 @@ func TestGetDeviceInfo_Connected(t *testing.T) {
 	ctrl, transport, client := connectedController()
 	defer client.OverrideConnectedForTest(false)
 
-	// Build a full device info response.
-	var payload []byte
-	payload = append(payload, protocol.RESPONSE_TYPE_DEVICE_INFO, protocol.STATUS_SUCCESS)
-	payload = append(payload, []byte("TestModel")...)
-	payload = append(payload, 0x00)
-	payload = append(payload, []byte("1.0.0")...)
-	payload = append(payload, 0x00)
-	payload = append(payload, []byte("2.0")...)
-	payload = append(payload, 0x00)
-	payload = append(payload, []byte("SN001")...)
-	payload = append(payload, 0x00)
-	payload = append(payload, 0x00, 96)  // columns
-	payload = append(payload, 0x00, 16)  // rows
-	payload = append(payload, 0x01)      // power on
-	payload = append(payload, 128)       // brightness
-	payload = append(payload, 0x00)      // flip none
+	// Build a device info response in the new APK format.
+	payload := []byte{
+		protocol.RESPONSE_TYPE_DEVICE_INFO,
+		0x01, // power on
+		128,  // brightness
+		0x00, // flip none
+		0x01, // mic_supported
+		0x00, // mic_enabled
+		0x00, // mic_mode
+		0x00, // show_device_id
+		0x04, // max_program_number
+		0x01, // remote_enabled
+	}
 
 	frame := protocol.BuildStreamFrame(payload)
 	go func() { transport.InjectResponseForTest(frame) }()
@@ -1047,11 +982,14 @@ func TestGetDeviceInfo_Connected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if info.Model != "TestModel" {
-		t.Errorf("Model = %q, want %q", info.Model, "TestModel")
+	if !info.Power {
+		t.Error("Power should be true")
 	}
-	if info.Columns != 96 {
-		t.Errorf("Columns = %d, want 96", info.Columns)
+	if info.Brightness != 128 {
+		t.Errorf("Brightness = %d, want 128", info.Brightness)
+	}
+	if info.MaxProgramNumber != 4 {
+		t.Errorf("MaxProgramNumber = %d, want 4", info.MaxProgramNumber)
 	}
 }
 
@@ -1115,17 +1053,21 @@ func TestDisplayGIF_Connected(t *testing.T) {
 
 func TestParseDeviceInfoResponse_RawPayload(t *testing.T) {
 	// Raw payload without stream framing (fallback path).
-	var payload []byte
-	payload = append(payload, protocol.RESPONSE_TYPE_DEVICE_INFO, protocol.STATUS_SUCCESS)
-	payload = append(payload, []byte("M")...)
-	payload = append(payload, 0x00)
+	payload := []byte{
+		protocol.RESPONSE_TYPE_DEVICE_INFO,
+		0x01, // power on
+		0xFF, // brightness 255
+	}
 
 	info, err := parseDeviceInfoResponse(payload)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if info.Model != "M" {
-		t.Errorf("Model = %q, want %q", info.Model, "M")
+	if !info.Power {
+		t.Error("Power should be true")
+	}
+	if info.Brightness != 255 {
+		t.Errorf("Brightness = %d, want 255", info.Brightness)
 	}
 }
 

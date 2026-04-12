@@ -48,16 +48,7 @@ func (h *Handlers) GetDeviceInfo(c *fiber.Ctx) error {
 			Error:   err.Error(),
 		})
 	}
-	return c.JSON(DeviceInfoResponse{
-		Model:           info.Model,
-		FirmwareVersion: info.FirmwareVersion,
-		HardwareVersion: info.HardwareVersion,
-		Columns:         info.Columns,
-		Rows:            info.Rows,
-		Power:           info.Power,
-		Brightness:      info.Brightness,
-		FlipMode:        int(info.FlipMode),
-	})
+	return c.JSON(info)
 }
 
 // SetPower turns the display on or off.

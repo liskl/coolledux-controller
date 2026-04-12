@@ -174,7 +174,7 @@ func (c *Controller) GetTimers(ctx context.Context) ([]byte, error) {
 
 // GetDeviceInfo requests and parses device identity and state information.
 func (c *Controller) GetDeviceInfo(ctx context.Context) (*models.DeviceInfo, error) {
-	cmd := protocol.BuildInfoCommand()
+	cmd := protocol.BuildDeviceInfoCommand()
 	resp, err := c.transport.SendAndWait(ctx, cmd, protocol.CommandTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("getting device info: %w", err)
@@ -190,23 +190,19 @@ func (c *Controller) GetDeviceInfo(ctx context.Context) (*models.DeviceInfo, err
 	c.mu.Unlock()
 
 	c.logger.Info("device info received",
-		"model", info.Model,
-		"firmware", info.FirmwareVersion,
-		"columns", info.Columns,
-		"rows", info.Rows,
+		"power", info.Power,
+		"brightness", info.Brightness,
+		"flip_mode", info.FlipMode,
+		"mic_supported", info.MicSupported,
+		"remote_enabled", info.RemoteEnabled,
 	)
 	return info, nil
 }
 
-// ResetDevice sends a factory reset command to the device.
-func (c *Controller) ResetDevice(ctx context.Context) error {
-	cmd := protocol.BuildResetCommand()
-	_, err := c.transport.SendAndWait(ctx, cmd, protocol.CommandTimeout)
-	if err != nil {
-		return fmt.Errorf("resetting device: %w", err)
-	}
-	c.logger.Info("device reset")
-	return nil
+// ResetDevice is a stub. The reset command code has not been verified from the
+// APK decompilation, so we refuse to send an unverified command.
+func (c *Controller) ResetDevice(_ context.Context) error {
+	return fmt.Errorf("reset command not verified on this device")
 }
 
 // DisplayImage decodes an image from raw bytes, resizes it to the display
@@ -617,13 +613,26 @@ func checkProgramStartResponse(data []byte) error {
 }
 
 // parseDeviceInfoResponse extracts DeviceInfo from a device info response.
+//
+// APK field mapping (DeviceManager.java, 0x1F response):
+//
+//	payload[0]  = 0x1F (command/response type)
+//	payload[1]  = power (0=off, 1=on)
+//	payload[2]  = brightness (0-255)
+//	payload[3]  = rotate/mirror (0-3)
+//	payload[4]  = mic_supported (bool)
+//	payload[5]  = mic_on_off (bool)
+//	payload[6]  = mic_mode
+//	payload[7]  = show_device_id (bool)
+//	payload[8]  = max_program_number
+//	payload[9]  = remote_enable (bool)
+//	payload[10:] = extended data
 func parseDeviceInfoResponse(data []byte) (*models.DeviceInfo, error) {
 	inner, err := protocol.ParseStreamFrame(data)
 	if err != nil {
 		inner = data
 	}
 
-	// Device responses are stream-framed only (no BLE packet header).
 	payload := inner
 
 	if len(payload) < 2 {
@@ -634,8 +643,6 @@ func parseDeviceInfoResponse(data []byte) (*models.DeviceInfo, error) {
 		return nil, fmt.Errorf("not a device info response: type 0x%02X", payload[0])
 	}
 
-	// The info payload layout after the type byte varies by firmware.
-	// We do best-effort extraction of what's available.
 	info := &models.DeviceInfo{
 		Connected: true,
 	}
@@ -645,56 +652,46 @@ func parseDeviceInfoResponse(data []byte) (*models.DeviceInfo, error) {
 		return info, nil
 	}
 
-	// Status byte.
-	if rest[0] != protocol.STATUS_SUCCESS {
-		return nil, fmt.Errorf("info response error status: 0x%02X", rest[0])
-	}
+	// payload[1]: power
+	info.Power = rest[0] != 0
 	rest = rest[1:]
 
-	// Parse null-terminated strings and numeric fields from the remaining bytes.
-	// Field order: model, firmware version, hardware version, serial number,
-	// columns (2 bytes BE), rows (2 bytes BE), power (1), brightness (1), flip (1).
-	info.Model = extractNullString(&rest)
-	info.FirmwareVersion = extractNullString(&rest)
-	info.HardwareVersion = extractNullString(&rest)
-	info.SerialNumber = extractNullString(&rest)
-
-	if len(rest) >= 2 {
-		info.Columns = int(binary.BigEndian.Uint16(rest[0:2]))
-		rest = rest[2:]
-	}
-	if len(rest) >= 2 {
-		info.Rows = int(binary.BigEndian.Uint16(rest[0:2]))
-		rest = rest[2:]
-	}
-	if len(rest) >= 1 {
-		info.Power = rest[0] != 0
-		rest = rest[1:]
-	}
 	if len(rest) >= 1 {
 		info.Brightness = rest[0]
 		rest = rest[1:]
 	}
 	if len(rest) >= 1 {
 		info.FlipMode = models.FlipMode(rest[0])
+		rest = rest[1:]
+	}
+	if len(rest) >= 1 {
+		info.MicSupported = rest[0] != 0
+		rest = rest[1:]
+	}
+	if len(rest) >= 1 {
+		info.MicEnabled = rest[0] != 0
+		rest = rest[1:]
+	}
+	if len(rest) >= 1 {
+		info.MicMode = rest[0]
+		rest = rest[1:]
+	}
+	if len(rest) >= 1 {
+		info.ShowDeviceID = rest[0] != 0
+		rest = rest[1:]
+	}
+	if len(rest) >= 1 {
+		info.MaxProgramNumber = rest[0]
+		rest = rest[1:]
+	}
+	if len(rest) >= 1 {
+		info.RemoteEnabled = rest[0] != 0
+		rest = rest[1:]
+	}
+	if len(rest) > 0 {
+		info.ExtendedData = make([]byte, len(rest))
+		copy(info.ExtendedData, rest)
 	}
 
 	return info, nil
-}
-
-// extractNullString reads a null-terminated string from the front of *data.
-// Returns empty string if data is empty or starts with null.
-func extractNullString(data *[]byte) string {
-	d := *data
-	for i, b := range d {
-		if b == 0x00 {
-			s := string(d[:i])
-			*data = d[i+1:]
-			return s
-		}
-	}
-	// No null terminator found; consume everything.
-	s := string(d)
-	*data = nil
-	return s
 }

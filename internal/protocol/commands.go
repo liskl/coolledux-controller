@@ -54,16 +54,18 @@ func BuildChannelCommand(channel uint8) []byte {
 }
 
 // BuildPasswordCommand builds a framed password verify or set command.
-// verify=true sends PasswordOpVerify (0x01), verify=false sends PasswordOpSet (0x00).
+// verify=true uses CMD_CHECK_PASSWORD (0x0D), verify=false uses CMD_SET_PASSWORD (0x0E).
 func BuildPasswordCommand(password string, verify bool) []byte {
+	cmdCode := CMD_SET_PASSWORD
 	op := PasswordOpSet
 	if verify {
+		cmdCode = CMD_CHECK_PASSWORD
 		op = PasswordOpVerify
 	}
 	data := make([]byte, 1+len(password))
 	data[0] = op
 	copy(data[1:], []byte(password))
-	return buildControlCommand(CMD_PASSWORD, data)
+	return buildControlCommand(cmdCode, data)
 }
 
 // BuildTimeSyncCommand builds a framed time-sync command matching the APK format.
@@ -121,12 +123,8 @@ func BuildGetTimerCommand() []byte {
 	return BuildStreamFrame([]byte{CMD_GET_TIMER})
 }
 
-// BuildInfoCommand builds a framed device info request (no data payload).
-func BuildInfoCommand() []byte {
-	return buildControlCommand(CMD_INFO, nil)
-}
-
-// BuildResetCommand builds a framed device reset command (no data payload).
-func BuildResetCommand() []byte {
-	return buildControlCommand(CMD_RESET, nil)
+// BuildDeviceInfoCommand builds a framed device info request (0x1F).
+// The APK uses 0x1F for device info (not 0x0D which is password check).
+func BuildDeviceInfoCommand() []byte {
+	return BuildStreamFrame([]byte{CMD_DEVICE_INFO})
 }

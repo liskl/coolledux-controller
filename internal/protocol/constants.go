@@ -16,13 +16,9 @@ const (
 	CMD_SET_TIMER  byte = 0x0A // Verified: APK sends enable/hour/min/days/power_on/0x00 per slot (no CRC)
 	CMD_GET_TIMER  byte = 0x0B // Verified: APK sends bare command to read timer slots back
 	CMD_FLIP       byte = 0x0C // Verified: 0=none, 1=horizontal, 2=vertical, 3=both (SDK says 0x07)
-	CMD_INFO       byte = 0x0D
-	CMD_RESET      byte = 0x0E
-
-	// CMD_PASSWORD was previously mapped to 0x09, which conflicts with CMD_TIME_SYNC.
-	// The APK does not appear to use a password command on this device/firmware.
-	// Keeping the constant for reference but it may not be valid.
-	CMD_PASSWORD byte = 0x09 // UNVERIFIED: conflicts with CMD_TIME_SYNC, may not exist on this device
+	CMD_CHECK_PASSWORD byte = 0x0D // APK: password check with XOR encoding
+	CMD_SET_PASSWORD   byte = 0x0E // APK: password set with XOR encoding
+	CMD_DEVICE_INFO    byte = 0x1F // Verified: APK uses 0x1F (not 0x0D)
 )
 
 // Command types (Layer 1 BLE packet frame).

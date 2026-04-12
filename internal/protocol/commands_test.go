@@ -131,10 +131,11 @@ func TestBuildPasswordCommand(t *testing.T) {
 		name     string
 		password string
 		verify   bool
+		wantCmd  byte
 		wantOp   byte
 	}{
-		{"verify", "1234", true, PasswordOpVerify},
-		{"set", "abcdef", false, PasswordOpSet},
+		{"verify", "1234", true, CMD_CHECK_PASSWORD, PasswordOpVerify},
+		{"set", "abcdef", false, CMD_SET_PASSWORD, PasswordOpSet},
 	}
 
 	for _, tt := range tests {
@@ -142,8 +143,8 @@ func TestBuildPasswordCommand(t *testing.T) {
 			frame := BuildPasswordCommand(tt.password, tt.verify)
 			payload := roundTripCommand(t, frame)
 
-			if payload[0] != CMD_PASSWORD {
-				t.Errorf("command code = 0x%02X, want 0x%02X", payload[0], CMD_PASSWORD)
+			if payload[0] != tt.wantCmd {
+				t.Errorf("command code = 0x%02X, want 0x%02X", payload[0], tt.wantCmd)
 			}
 			if payload[1] != tt.wantOp {
 				t.Errorf("op = 0x%02X, want 0x%02X", payload[1], tt.wantOp)
@@ -295,32 +296,15 @@ func TestBuildGetTimerCommand(t *testing.T) {
 	}
 }
 
-func TestBuildInfoCommand(t *testing.T) {
-	frame := BuildInfoCommand()
+func TestBuildDeviceInfoCommand(t *testing.T) {
+	frame := BuildDeviceInfoCommand()
 	payload := roundTripCommand(t, frame)
 
-	// payload: [CMD_INFO][CRC32 x4]
-	if len(payload) != 5 {
-		t.Fatalf("payload length = %d, want 5", len(payload))
+	// Device info uses BuildStreamFrame directly (no CRC), so payload is just [0x1F].
+	if len(payload) != 1 {
+		t.Fatalf("payload length = %d, want 1", len(payload))
 	}
-	if payload[0] != CMD_INFO {
-		t.Errorf("command code = 0x%02X, want 0x%02X", payload[0], CMD_INFO)
+	if payload[0] != CMD_DEVICE_INFO {
+		t.Errorf("command code = 0x%02X, want 0x%02X (CMD_DEVICE_INFO)", payload[0], CMD_DEVICE_INFO)
 	}
-
-	verifyCRC(t, payload)
-}
-
-func TestBuildResetCommand(t *testing.T) {
-	frame := BuildResetCommand()
-	payload := roundTripCommand(t, frame)
-
-	// payload: [CMD_RESET][CRC32 x4]
-	if len(payload) != 5 {
-		t.Fatalf("payload length = %d, want 5", len(payload))
-	}
-	if payload[0] != CMD_RESET {
-		t.Errorf("command code = 0x%02X, want 0x%02X", payload[0], CMD_RESET)
-	}
-
-	verifyCRC(t, payload)
 }

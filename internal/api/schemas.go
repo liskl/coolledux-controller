@@ -89,18 +89,6 @@ type HealthResponse struct {
 	UptimeSeconds int64  `json:"uptime_seconds"`
 }
 
-// DeviceInfoResponse holds identity and state information returned by the device.
-type DeviceInfoResponse struct {
-	Model           string `json:"model"`
-	FirmwareVersion string `json:"firmware_version"`
-	HardwareVersion string `json:"hardware_version"`
-	Columns         int    `json:"columns"`
-	Rows            int    `json:"rows"`
-	Power           bool   `json:"power"`
-	Brightness      uint8  `json:"brightness"`
-	FlipMode        int    `json:"flip_mode"`
-}
-
 // parseColor converts a hex color string ("#RRGGBB" or "RRGGBB") to a uint32.
 func parseColor(hex string) (uint32, error) {
 	hex = strings.TrimPrefix(hex, "#")

@@ -124,6 +124,20 @@ func (c *Controller) SetFlip(ctx context.Context, mode models.FlipMode) error {
 	return nil
 }
 
+// SetChannel switches the displayed program/channel slot on the device.
+func (c *Controller) SetChannel(ctx context.Context, channel uint8) error {
+	cmd := protocol.BuildChannelCommand(channel)
+	resp, err := c.transport.SendAndWait(ctx, cmd, protocol.CommandTimeout)
+	if err != nil {
+		return fmt.Errorf("setting channel: %w", err)
+	}
+	if err := checkResponse(resp, protocol.RESPONSE_TYPE_CHANNEL); err != nil {
+		return fmt.Errorf("channel command rejected: %w", err)
+	}
+	c.logger.Info("channel set", "channel", channel)
+	return nil
+}
+
 // SyncTime sets the device clock.
 func (c *Controller) SyncTime(ctx context.Context, hour, minute, second uint8) error {
 	cmd := protocol.BuildTimeCommand(hour, minute, second)
@@ -538,37 +552,27 @@ func wrapProgram(content []byte) []byte {
 	return wrapper
 }
 
-// checkResponse does basic validation of a device response. It parses the
-// stream frame and BLE packet, then checks the response type and status byte.
+// checkResponse validates a device response by verifying the response type.
+//
+// The second byte in control command responses is the echoed value (not a
+// status code). For example, brightness 255 returns [0x04, 0xFF] and power
+// ON returns [0x05, 0x01]. We only check the type byte matches.
 func checkResponse(data []byte, expectedType byte) error {
 	if len(data) == 0 {
 		return fmt.Errorf("empty response")
 	}
 
-	// Try to parse as stream frame -> BLE packet.
 	inner, err := protocol.ParseStreamFrame(data)
 	if err != nil {
-		// Some devices send raw BLE packets without stream framing.
 		inner = data
 	}
 
-	// Device responses are stream-framed only (no BLE packet header).
-	// After ParseStreamFrame, inner is the raw payload: [type][status][data...].
-	payload := inner
-
-	if len(payload) < 2 {
-		return fmt.Errorf("response payload too short: %d bytes", len(payload))
+	if len(inner) < 1 {
+		return fmt.Errorf("response payload too short: %d bytes", len(inner))
 	}
 
-	respType := payload[0]
-	status := payload[1]
-
-	if respType != expectedType {
-		return fmt.Errorf("unexpected response type: got 0x%02X, want 0x%02X", respType, expectedType)
-	}
-
-	if status != protocol.STATUS_SUCCESS {
-		return fmt.Errorf("device returned error status 0x%02X", status)
+	if inner[0] != expectedType {
+		return fmt.Errorf("unexpected response type: got 0x%02X, want 0x%02X", inner[0], expectedType)
 	}
 
 	return nil

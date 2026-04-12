@@ -23,6 +23,11 @@ type FlipRequest struct {
 	Mode string `json:"mode"` // "none", "horizontal", "vertical", "both"
 }
 
+// ChannelRequest switches the displayed program/channel slot.
+type ChannelRequest struct {
+	Channel uint8 `json:"channel"`
+}
+
 // TimeRequest sets the device clock.
 type TimeRequest struct {
 	Hour   uint8 `json:"hour"`

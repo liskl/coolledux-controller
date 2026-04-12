@@ -50,6 +50,7 @@ func NewServer(ctrl *controller.Controller, cfg *config.Config, logger *slog.Log
 	app.Post("/device/power", h.SetPower)
 	app.Post("/device/brightness", h.SetBrightness)
 	app.Post("/device/flip", h.SetFlip)
+	app.Post("/device/channel", h.SetChannel)
 	app.Post("/device/time", h.SyncTime)
 	app.Post("/device/timer", h.SetTimers)
 	app.Post("/device/reset", h.ResetDevice)

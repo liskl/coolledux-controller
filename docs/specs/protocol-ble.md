@@ -48,7 +48,7 @@ The protocol details below were verified by live testing against a CoolLEDUX dev
 | BRIGHTNESS | `0x04` | `[value:1]` (0-255) | Yes, device echoes value in ACK |
 | POWER | `0x05` | `[0x01]`=on, `[0x00]`=off | Yes, device sends ACK |
 | CMD 0x06 | `0x06` | - | Device ignores ALL packets with this code |
-| CHANNEL | `0x07` | `[slot:1]` (program/channel index) | Yes, switches displayed program |
+| CHANNEL | `0x07` | `[slot:1]` (program/channel index) | Yes, cycled channels 0-9 visually verified |
 | PROGRAM | `0x08` | See "Program Upload" below | Yes, device ACKs start + chunks |
 | PASSWORD | `0x09` | `[op:1][password_bytes...]` | ACK observed |
 | TIME | `0x0A` | `[hour:1][minute:1][second:1]` | ACK observed |

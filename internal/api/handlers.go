@@ -139,6 +139,25 @@ func (h *Handlers) SetFlip(c *fiber.Ctx) error {
 	return c.JSON(SuccessResponse{Success: true})
 }
 
+// SetChannel switches the displayed program/channel slot.
+func (h *Handlers) SetChannel(c *fiber.Ctx) error {
+	var req ChannelRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+			Success: false,
+			Error:   "invalid request body: " + err.Error(),
+		})
+	}
+
+	if err := h.ctrl.SetChannel(c.Context(), req.Channel); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+	}
+	return c.JSON(SuccessResponse{Success: true})
+}
+
 // SyncTime sets the device clock.
 func (h *Handlers) SyncTime(c *fiber.Ctx) error {
 	var req TimeRequest

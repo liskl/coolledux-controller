@@ -11,6 +11,7 @@ Fiber v2, default port `:8080`.
 | POST | `/device/power` | `{"state":"on"}` | Power on/off |
 | POST | `/device/brightness` | `{"brightness":128}` | Brightness 0-255 |
 | POST | `/device/flip` | `{"mode":"horizontal"}` | none/horizontal/vertical/both |
+| POST | `/device/channel` | `{"channel":0}` | Switch program/channel slot (0-9 verified) |
 | POST | `/device/time` | `{"hour":14,"minute":30,"second":0}` | Sync time |
 | POST | `/device/timer` | `{"items":[...]}` | Set timers |
 | POST | `/device/reset` | - | Factory reset |

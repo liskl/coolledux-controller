@@ -25,7 +25,7 @@ State (published by service):
 
 Commands (subscribed by service):
   coolledux/{device_id}/set                JSON: power, brightness, color, effect
-  coolledux/{device_id}/text/set           JSON: text, mode, speed, color, font_size
+  coolledux/{device_id}/text/set           JSON: text, mode, speed, color, font_size, font
   coolledux/{device_id}/image/set          JSON: image_base64, mode
   coolledux/{device_id}/gif/set            JSON: gif_base64, frame_duration
 ```
@@ -73,9 +73,12 @@ Maps `state` ON/OFF to power, `brightness` to brightness command, `effect` to Te
   "mode": "scroll_left",
   "speed": 5,
   "color": "#FF0000",
-  "font_size": 16
+  "font_size": 16,
+  "font": "8x16"
 }
 ```
+
+`font` is optional; empty selects the default. Valid names come from the REST endpoint `GET /fonts`.
 
 ### Image (`coolledux/{device_id}/image/set`)
 

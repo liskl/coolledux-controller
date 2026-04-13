@@ -18,6 +18,8 @@ Fiber v2, default port `:8080`.
 | POST | `/display/text` | See below | Display text |
 | POST | `/display/image` | See below | Display image |
 | POST | `/display/gif` | See below | Display GIF |
+| POST | `/display/color` | `{"color":"#FF8800"}` | Set global tint color (CMD_COLOR 0x13/0x01) |
+| GET | `/fonts` | - | List available fonts for `/display/text` |
 
 ## Request/Response Details
 
@@ -36,11 +38,14 @@ Fiber v2, default port `:8080`.
   "speed": 5,
   "color": "#FF0000",
   "font_size": 16,
-  "stay_time": 0
+  "stay_time": 0,
+  "font": "8x16"
 }
 ```
 
 `mode` values: `static`, `scroll_left`, `scroll_right`, `scroll_up`, `scroll_down`, `blink`, `fade_in`, `fade_out`, `zoom_in`, `zoom_out`, `rotate`, `wave`
+
+`font` is optional. Empty/missing selects the default (`7x13`). Unknown names return HTTP 500 with an explanatory error. `GET /fonts` lists what's registered. `font_size` is currently ignored; each registered font has a fixed cell size.
 
 ### POST /display/image
 
@@ -63,6 +68,29 @@ Verified working end-to-end: base64 PNG -> decode -> resize to 96x16 -> RGB444 -
   "frame_duration": 100
 }
 ```
+
+### POST /display/color
+
+Sets the global tint color applied to text/content. Maps to BLE command `0x13` subtype `0x01` (RGB444 packed).
+
+```json
+{"color": "#FF8800"}
+```
+
+### GET /fonts
+
+```json
+{
+  "default": "7x13",
+  "fonts": [
+    {"name": "7x13",  "description": "Plan 9 bitmap monospace, 7x13 cell, pure 1-bit", "advance_px": 7, "line_px": 13, "monospace": true},
+    {"name": "7x14b", "description": "X11 Misc Fixed Bold 7x14 (public domain)",      "advance_px": 7, "line_px": 14, "monospace": true},
+    {"name": "8x16",  "description": "Spleen 8x16 by Frederic Cambus (BSD-2) — fills full matrix height", "advance_px": 8, "line_px": 16, "monospace": true}
+  ]
+}
+```
+
+The `name` field is what to pass in `POST /display/text`'s `font` field.
 
 ### Success/Error Responses
 

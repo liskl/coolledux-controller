@@ -48,7 +48,12 @@ coolledux-controller/
     image/
       processor.go                  # Resize, rotate, flip, RGBA-to-DrawItem extraction
       gif.go                        # GIF frame extraction, duration parsing
-      color.go                      # RGB888->RGB444, column-major encoding
+      color.go                      # RGB888->RGB444 (47/14 transfer), column-major encoding
+    text/
+      renderer.go                   # Rasterize strings to RGB444 column-major bytes via font.Drawer
+      fonts.go                      # Font registry; Register/Face/AvailableFonts/BaselineOffset
+      font.go                       # Legacy 16x16 APK-extracted glyph helpers (unused by default path)
+      bdf/                          # Embedded BDF files: spleen-8x16.bdf, 7x14B.bdf
     api/
       server.go                     # Fiber HTTP server setup, route registration
       handlers.go                   # Route handlers for all endpoints
@@ -76,6 +81,8 @@ coolledux-controller/
 | `github.com/gofiber/fiber/v2` | HTTP framework |
 | `github.com/spf13/viper` | Configuration (YAML + env) |
 | `github.com/disintegration/imaging` | Image resize/rotate/flip |
+| `golang.org/x/image/font/basicfont` | Default monospace face (Face7x13, Plan 9 bitmap) |
+| `github.com/zachomedia/go-bdf` | Parse embedded BDF bitmap fonts (Spleen 8x16, X11 7x14B) |
 | `log/slog` (stdlib) | Structured logging |
 
 ---
@@ -146,7 +153,7 @@ Docker: multi-stage build (golang:1.23-alpine -> alpine:3.20 with bluez+dbus). R
 
 3. **layer_type MUST be 1** in all program content structures. Using 0 causes silent failure (device ACKs but shows default text).
 
-4. **LZSS compression is required** for program uploads. Uncompressed data is accepted (ACKed) but not displayed correctly.
+4. **LZSS compression is required** for program uploads. Uncompressed data is accepted (ACKed) but not displayed correctly. The encoder must cap match length at `dist` (no self-referential matches): the firmware decoder doesn't handle them correctly and produces a phantom byte one past the reference.
 
 5. **CRC32 uses 32 iterations per byte**, polynomial 0x4C11DB7, no final XOR. Output little-endian for control commands, big-endian in program start metadata.
 
@@ -163,3 +170,5 @@ Docker: multi-stage build (golang:1.23-alpine -> alpine:3.20 with bluez+dbus). R
 11. **Send chunks in 20-byte MTU pieces** with ~50ms inter-piece delay.
 
 12. **Escape applies to length bytes too.** The 2-byte big-endian length is part of the escaped region.
+
+13. **Device quirk — uniform full column produces a phantom pixel.** When 16 identical pixel values fill a complete column, the firmware lights a stray pixel at (col+1, row 0). Reproduces with LZSS disabled too, so it's not our encoder. Doesn't affect normal text rendering (glyphs rarely have 16px-tall uniform strokes).

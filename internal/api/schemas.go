@@ -82,6 +82,12 @@ type ImageRequest struct {
 	Speed       uint8  `json:"speed"`
 	StayTime    uint8  `json:"stay_time"`
 	Fit         string `json:"fit"` // "letterbox" (default), "stretch", "cover"
+	// Placement on the matrix. (0,0) is top-left; width/height of 0 means
+	// "fill remaining space from the offset". Defaults cover the whole display.
+	X      int `json:"x"`
+	Y      int `json:"y"`
+	Width  int `json:"width"`
+	Height int `json:"height"`
 }
 
 // GIFRequest displays an animated GIF on the LED matrix.
@@ -89,6 +95,11 @@ type GIFRequest struct {
 	GIFBase64     string `json:"gif_base64"`
 	FrameDuration uint16 `json:"frame_duration"`
 	Fit           string `json:"fit"` // "letterbox" (default), "stretch", "cover"
+	// Placement on the matrix. Same semantics as ImageRequest.
+	X      int `json:"x"`
+	Y      int `json:"y"`
+	Width  int `json:"width"`
+	Height int `json:"height"`
 }
 
 // ColorRequest sets the device's global tint color.

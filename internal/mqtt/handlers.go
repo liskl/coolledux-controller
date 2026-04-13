@@ -129,7 +129,7 @@ func (h *CommandHandler) HandleImageCommand(payload []byte) error {
 	}
 
 	ctx := context.Background()
-	if err := h.ctrl.DisplayImage(ctx, imgData, mode, 5, 0, fit); err != nil {
+	if err := h.ctrl.DisplayImage(ctx, imgData, mode, 5, 0, fit, cmd.X, cmd.Y, cmd.Width, cmd.Height); err != nil {
 		return fmt.Errorf("displaying image: %w", err)
 	}
 
@@ -155,7 +155,7 @@ func (h *CommandHandler) HandleGIFCommand(payload []byte) error {
 	}
 
 	ctx := context.Background()
-	if err := h.ctrl.DisplayGIF(ctx, gifData, cmd.FrameDuration, fit); err != nil {
+	if err := h.ctrl.DisplayGIF(ctx, gifData, cmd.FrameDuration, fit, cmd.X, cmd.Y, cmd.Width, cmd.Height); err != nil {
 		return fmt.Errorf("displaying gif: %w", err)
 	}
 

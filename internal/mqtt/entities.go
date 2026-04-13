@@ -89,6 +89,10 @@ type TextCommand struct {
 type ImageCommand struct {
 	ImageBase64 string `json:"image_base64"`
 	Fit         string `json:"fit"`
+	X           int    `json:"x"`
+	Y           int    `json:"y"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
 	Mode        string `json:"mode"`
 }
 
@@ -97,4 +101,8 @@ type GIFCommand struct {
 	GIFBase64     string `json:"gif_base64"`
 	FrameDuration uint16 `json:"frame_duration"`
 	Fit           string `json:"fit"`
+	X             int    `json:"x"`
+	Y             int    `json:"y"`
+	Width         int    `json:"width"`
+	Height        int    `json:"height"`
 }

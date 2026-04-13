@@ -26,8 +26,8 @@ State (published by service):
 Commands (subscribed by service):
   coolledux/{device_id}/set                JSON: power, brightness, color, effect
   coolledux/{device_id}/text/set           JSON: text, mode, speed, color, font_size, font
-  coolledux/{device_id}/image/set          JSON: image_base64, mode, fit
-  coolledux/{device_id}/gif/set            JSON: gif_base64, frame_duration, fit
+  coolledux/{device_id}/image/set          JSON: image_base64, mode, fit, x, y, width, height
+  coolledux/{device_id}/gif/set            JSON: gif_base64, frame_duration, fit, x, y, width, height
 ```
 
 ## Home Assistant Auto-Discovery Payloads
@@ -100,4 +100,4 @@ Maps `state` ON/OFF to power, `brightness` to brightness command, `effect` to Te
 }
 ```
 
-`fit` is optional. Values: `letterbox` (default), `stretch`, `cover`. See the REST spec for descriptions.
+`fit` is optional. Values: `letterbox` (default), `stretch`, `cover`. `x`, `y`, `width`, `height` place the content as a sprite (defaults cover the full display). See the REST spec for descriptions.

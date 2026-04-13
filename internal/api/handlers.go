@@ -347,7 +347,7 @@ func (h *Handlers) DisplayImage(c *fiber.Ctx) error {
 		})
 	}
 
-	if err := h.ctrl.DisplayImage(c.Context(), imgData, mode, req.Speed, req.StayTime, fit); err != nil {
+	if err := h.ctrl.DisplayImage(c.Context(), imgData, mode, req.Speed, req.StayTime, fit, req.X, req.Y, req.Width, req.Height); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -382,7 +382,7 @@ func (h *Handlers) DisplayGIF(c *fiber.Ctx) error {
 		})
 	}
 
-	if err := h.ctrl.DisplayGIF(c.Context(), gifData, req.FrameDuration, fit); err != nil {
+	if err := h.ctrl.DisplayGIF(c.Context(), gifData, req.FrameDuration, fit, req.X, req.Y, req.Width, req.Height); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),

@@ -225,45 +225,73 @@ func (c *Controller) ResetDevice(_ context.Context) error {
 	return fmt.Errorf("reset command not verified on this device")
 }
 
-// DisplayImage decodes an image from raw bytes, resizes it to the display
-// dimensions, encodes it as column-major RGB444, wraps it in a graffiti
-// program, and uploads it to the device. fit chooses how the image is mapped
-// onto the matrix (letterbox preserves aspect with black bars).
-func (c *Controller) DisplayImage(ctx context.Context, imgData []byte, mode models.TextShowMode, speed, stayTime uint8, fit ledimage.FitMode) error {
+// DisplayImage decodes an image from raw bytes, resizes it to the requested
+// region, encodes it as column-major RGB444, wraps it in a graffiti program,
+// and uploads it to the device. The region is positioned at (x, y) on the
+// matrix and is `width` × `height` pixels. A width or height of 0 fills the
+// remaining display from the offset. fit chooses how the source image is
+// mapped onto the region.
+func (c *Controller) DisplayImage(ctx context.Context, imgData []byte, mode models.TextShowMode, speed, stayTime uint8, fit ledimage.FitMode, x, y, width, height int) error {
 	img, err := ledimage.DecodeImage(imgData)
 	if err != nil {
 		return fmt.Errorf("decoding image: %w", err)
 	}
 
-	width := c.cfg.Display.Columns
-	height := c.cfg.Display.Rows
+	x, y, width, height, err = c.resolveRegion(x, y, width, height)
+	if err != nil {
+		return err
+	}
 
 	resized := ledimage.ResizeForMatrix(img, width, height, fit)
 	pixels := ledimage.ImageToRGBA(resized)
 	encoded := ledimage.EncodeImageColumnMajor(pixels, width, height)
 
-	programPayload := buildGraffitiProgram(width, height, mode, speed, stayTime, encoded)
+	programPayload := buildGraffitiProgram(x, y, width, height, mode, speed, stayTime, encoded)
 
 	if err := c.sendProgram(ctx, programPayload); err != nil {
 		return fmt.Errorf("sending image program: %w", err)
 	}
 
-	c.logger.Info("image displayed", "width", width, "height", height)
+	c.logger.Info("image displayed", "x", x, "y", y, "width", width, "height", height)
 	return nil
+}
+
+// resolveRegion fills in zero width/height with "rest of display from offset"
+// and validates that the rectangle is on-screen.
+func (c *Controller) resolveRegion(x, y, width, height int) (int, int, int, int, error) {
+	dispW := c.cfg.Display.Columns
+	dispH := c.cfg.Display.Rows
+	if width == 0 {
+		width = dispW - x
+	}
+	if height == 0 {
+		height = dispH - y
+	}
+	if x < 0 || y < 0 {
+		return 0, 0, 0, 0, fmt.Errorf("placement: x and y must be non-negative (got %d, %d)", x, y)
+	}
+	if width <= 0 || height <= 0 {
+		return 0, 0, 0, 0, fmt.Errorf("placement: width and height must be positive (got %d, %d)", width, height)
+	}
+	if x+width > dispW || y+height > dispH {
+		return 0, 0, 0, 0, fmt.Errorf("placement: %dx%d at (%d,%d) extends past %dx%d display", width, height, x, y, dispW, dispH)
+	}
+	return x, y, width, height, nil
 }
 
 // DisplayGIF decodes a GIF, extracts and resizes each frame, encodes them
 // as column-major RGB444, wraps them in an animation program, and uploads
-// the result to the device. fit chooses how each frame is mapped onto the
-// matrix (letterbox preserves aspect with black bars).
-func (c *Controller) DisplayGIF(ctx context.Context, gifData []byte, frameDuration uint16, fit ledimage.FitMode) error {
+// the result to the device. Region semantics match DisplayImage.
+func (c *Controller) DisplayGIF(ctx context.Context, gifData []byte, frameDuration uint16, fit ledimage.FitMode, x, y, width, height int) error {
 	g, err := ledimage.DecodeGIF(gifData)
 	if err != nil {
 		return fmt.Errorf("decoding gif: %w", err)
 	}
 
-	width := c.cfg.Display.Columns
-	height := c.cfg.Display.Rows
+	x, y, width, height, err = c.resolveRegion(x, y, width, height)
+	if err != nil {
+		return err
+	}
 
 	frames, delays := ledimage.ExtractFrames(g, width, height, fit)
 	if len(frames) == 0 {
@@ -283,13 +311,13 @@ func (c *Controller) DisplayGIF(ctx context.Context, gifData []byte, frameDurati
 		encodedFrames = append(encodedFrames, ledimage.EncodeImageColumnMajor(frame, width, height))
 	}
 
-	programPayload := buildAnimationProgram(width, height, encodedFrames, delays)
+	programPayload := buildAnimationProgram(x, y, width, height, encodedFrames, delays)
 
 	if err := c.sendProgram(ctx, programPayload); err != nil {
 		return fmt.Errorf("sending gif program: %w", err)
 	}
 
-	c.logger.Info("gif displayed", "frames", len(frames), "width", width, "height", height)
+	c.logger.Info("gif displayed", "frames", len(frames), "x", x, "y", y, "width", width, "height", height)
 	return nil
 }
 
@@ -331,7 +359,7 @@ func (c *Controller) DisplayText(ctx context.Context, s string, mode models.Text
 	if err != nil {
 		return fmt.Errorf("selecting font: %w", err)
 	}
-	programPayload := buildGraffitiProgram(width, height, mode, speed, stayTime, pixels)
+	programPayload := buildGraffitiProgram(0, 0, width, height, mode, speed, stayTime, pixels)
 
 	if err := c.sendProgram(ctx, programPayload); err != nil {
 		return fmt.Errorf("sending text program: %w", err)
@@ -516,20 +544,16 @@ func buildProgramDataPayload(totalLen uint32, chunkIdx uint16, data []byte) []by
 //	Wrapper: [0x00 x 8][contentCount:1][0x00][content...]
 //	Content: [totalLen:4 BE][0x02][0x00 x 7][layerType:1][startCol:2 BE][startRow:2 BE]
 //	         [width:2 BE][height:2 BE][mode:1][speed:1][stayTime:1][imgDataLen:4 BE][imgData...]
-func buildGraffitiProgram(width, height int, mode models.TextShowMode, speed, stayTime uint8, imageData []byte) []byte {
-	// Content block: 4 (length) + 1 (type) + 7 (reserved) + 1 (layer) +
-	//   2+2 (start col/row) + 2+2 (width/height) + 1 (mode) + 1 (speed) +
-	//   1 (stay) + 4 (img data len) + N (img data) = 28 + N
+func buildGraffitiProgram(startCol, startRow, width, height int, mode models.TextShowMode, speed, stayTime uint8, imageData []byte) []byte {
 	contentLen := 28 + len(imageData)
 
 	content := make([]byte, contentLen)
 	binary.BigEndian.PutUint32(content[0:4], uint32(contentLen))
 	content[4] = 0x02 // graffiti content type
-	// content[5:12] reserved zeros
 	content[12] = 0x01 // layer type (verified: must be 1)
-	binary.BigEndian.PutUint16(content[13:15], 0)             // start column
-	binary.BigEndian.PutUint16(content[15:17], 0)             // start row
-	binary.BigEndian.PutUint16(content[17:19], uint16(width)) // show width
+	binary.BigEndian.PutUint16(content[13:15], uint16(startCol))
+	binary.BigEndian.PutUint16(content[15:17], uint16(startRow))
+	binary.BigEndian.PutUint16(content[17:19], uint16(width))
 	binary.BigEndian.PutUint16(content[19:21], uint16(height))
 	content[21] = uint8(mode)
 	content[22] = speed
@@ -544,28 +568,22 @@ func buildGraffitiProgram(width, height int, mode models.TextShowMode, speed, st
 //
 //	Content: [totalLen:4 BE][0x03][0x01][0x00 x 6][layerType:1][startCol:2 BE][startRow:2 BE]
 //	         [width:2 BE][height:2 BE][0x00][frameCount:2 BE][delays:2*N BE][frameData...]
-func buildAnimationProgram(width, height int, frames [][]byte, delays []uint16) []byte {
-	// Calculate total frame data size.
+func buildAnimationProgram(startCol, startRow, width, height int, frames [][]byte, delays []uint16) []byte {
 	var frameDataLen int
 	for _, f := range frames {
 		frameDataLen += len(f)
 	}
 
-	// Content size: 4 (length) + 1 (type) + 1 (mode flag) + 6 (reserved) +
-	//   1 (layer) + 2+2 (start col/row) + 2+2 (width/height) + 1 (reserved) +
-	//   2 (frame count) + 2*N (delays) + M (frame data)
-	//   = 24 + 2*len(delays) + frameDataLen
 	contentLen := 24 + 2*len(delays) + frameDataLen
 
 	content := make([]byte, contentLen)
 	binary.BigEndian.PutUint32(content[0:4], uint32(contentLen))
 	content[4] = 0x03 // animation content type
 	content[5] = 0x01 // mode/loop flag
-	// content[6:12] reserved zeros
 	content[12] = 0x01 // layer type (verified: must be 1)
-	binary.BigEndian.PutUint16(content[13:15], 0)             // start column
-	binary.BigEndian.PutUint16(content[15:17], 0)             // start row
-	binary.BigEndian.PutUint16(content[17:19], uint16(width)) // show width
+	binary.BigEndian.PutUint16(content[13:15], uint16(startCol))
+	binary.BigEndian.PutUint16(content[15:17], uint16(startRow))
+	binary.BigEndian.PutUint16(content[17:19], uint16(width))
 	binary.BigEndian.PutUint16(content[19:21], uint16(height))
 	content[21] = 0x00 // reserved
 	binary.BigEndian.PutUint16(content[22:24], uint16(len(delays)))

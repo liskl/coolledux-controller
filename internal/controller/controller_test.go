@@ -272,7 +272,7 @@ func TestBuildGraffitiProgram(t *testing.T) {
 	stayTime := uint8(10)
 	imageData := []byte{0x11, 0x22, 0x33}
 
-	result := buildGraffitiProgram(width, height, mode, speed, stayTime, imageData)
+	result := buildGraffitiProgram(0, 0, width, height, mode, speed, stayTime, imageData)
 
 	// Result = wrapper(10 bytes) + content(28 + len(imageData))
 	expectedLen := 10 + 28 + len(imageData)
@@ -328,7 +328,7 @@ func TestBuildAnimationProgram(t *testing.T) {
 	}
 	delays := []uint16{100, 200}
 
-	result := buildAnimationProgram(width, height, frames, delays)
+	result := buildAnimationProgram(0, 0, width, height, frames, delays)
 
 	// Content = 24 + 2*2 delays + (2+3) frame data = 24 + 4 + 5 = 33
 	expectedContentLen := 24 + 2*len(delays) + 2 + 3
@@ -688,7 +688,7 @@ func TestResetDevice_Stub(t *testing.T) {
 func TestDisplayImage_NotConnected(t *testing.T) {
 	ctrl := testController()
 	pngBytes := makeSmallPNG()
-	err := ctrl.DisplayImage(context.Background(), pngBytes, models.TextShowModeStatic, 5, 0, ledimage.FitLetterbox)
+	err := ctrl.DisplayImage(context.Background(), pngBytes, models.TextShowModeStatic, 5, 0, ledimage.FitLetterbox, 0, 0, 0, 0)
 	if err == nil {
 		t.Fatal("expected error from DisplayImage when not connected")
 	}
@@ -696,7 +696,7 @@ func TestDisplayImage_NotConnected(t *testing.T) {
 
 func TestDisplayImage_InvalidImage(t *testing.T) {
 	ctrl := testController()
-	err := ctrl.DisplayImage(context.Background(), []byte("not an image"), models.TextShowModeStatic, 5, 0, ledimage.FitLetterbox)
+	err := ctrl.DisplayImage(context.Background(), []byte("not an image"), models.TextShowModeStatic, 5, 0, ledimage.FitLetterbox, 0, 0, 0, 0)
 	if err == nil {
 		t.Fatal("expected error for invalid image data")
 	}
@@ -705,7 +705,7 @@ func TestDisplayImage_InvalidImage(t *testing.T) {
 func TestDisplayGIF_NotConnected(t *testing.T) {
 	ctrl := testController()
 	gifBytes := makeSmallGIF()
-	err := ctrl.DisplayGIF(context.Background(), gifBytes, 100, ledimage.FitLetterbox)
+	err := ctrl.DisplayGIF(context.Background(), gifBytes, 100, ledimage.FitLetterbox, 0, 0, 0, 0)
 	if err == nil {
 		t.Fatal("expected error from DisplayGIF when not connected")
 	}
@@ -713,7 +713,7 @@ func TestDisplayGIF_NotConnected(t *testing.T) {
 
 func TestDisplayGIF_InvalidGIF(t *testing.T) {
 	ctrl := testController()
-	err := ctrl.DisplayGIF(context.Background(), []byte("not a gif"), 100, ledimage.FitLetterbox)
+	err := ctrl.DisplayGIF(context.Background(), []byte("not a gif"), 100, ledimage.FitLetterbox, 0, 0, 0, 0)
 	if err == nil {
 		t.Fatal("expected error for invalid GIF data")
 	}
@@ -759,7 +759,7 @@ func TestConnect_NoHardware(t *testing.T) {
 
 func TestSendProgram_NotConnected(t *testing.T) {
 	ctrl := testController()
-	payload := buildGraffitiProgram(96, 16, models.TextShowModeStatic, 1, 0, []byte{0xFF})
+	payload := buildGraffitiProgram(0, 0, 96, 16, models.TextShowModeStatic, 1, 0, []byte{0xFF})
 	err := ctrl.sendProgram(context.Background(), payload)
 	if err == nil {
 		t.Fatal("expected error from sendProgram when not connected")
@@ -791,7 +791,7 @@ func TestSetProgramError(t *testing.T) {
 func TestBuildAnimationProgram_SingleFrame(t *testing.T) {
 	frame := []byte{0x01, 0x02, 0x03}
 	delays := []uint16{50}
-	result := buildAnimationProgram(16, 8, [][]byte{frame}, delays)
+	result := buildAnimationProgram(0, 0, 16, 8, [][]byte{frame}, delays)
 
 	content := result[10:]
 	if content[4] != 0x03 {
@@ -811,7 +811,7 @@ func TestBuildAnimationProgram_SingleFrame(t *testing.T) {
 }
 
 func TestBuildAnimationProgram_EmptyFrames(t *testing.T) {
-	result := buildAnimationProgram(16, 8, nil, nil)
+	result := buildAnimationProgram(0, 0, 16, 8, nil, nil)
 	// 10 wrapper + 24 header = 34
 	if len(result) != 34 {
 		t.Fatalf("len = %d, want 34", len(result))
@@ -1064,7 +1064,7 @@ func TestDisplayImage_Connected(t *testing.T) {
 		}
 	}()
 
-	err := ctrl.DisplayImage(context.Background(), pngBytes, models.TextShowModeStatic, 5, 0, ledimage.FitLetterbox)
+	err := ctrl.DisplayImage(context.Background(), pngBytes, models.TextShowModeStatic, 5, 0, ledimage.FitLetterbox, 0, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1083,7 +1083,7 @@ func TestDisplayGIF_Connected(t *testing.T) {
 		}
 	}()
 
-	err := ctrl.DisplayGIF(context.Background(), gifBytes, 100, ledimage.FitLetterbox)
+	err := ctrl.DisplayGIF(context.Background(), gifBytes, 100, ledimage.FitLetterbox, 0, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -68,17 +68,27 @@ Modes 14+ were probed during development and either silently render nothing or f
   "mode": "static",
   "speed": 1,
   "stay_time": 0,
-  "fit": "letterbox"
+  "fit": "letterbox",
+  "x": 0,
+  "y": 0,
+  "width": 96,
+  "height": 16
 }
 ```
 
-Verified working end-to-end: base64 PNG -> decode -> resize to 96x16 -> RGB444 -> LZSS -> BLE upload -> device displays image.
+Verified working end-to-end: base64 PNG -> decode -> resize -> RGB444 -> LZSS -> BLE upload -> device displays image.
 
-`fit` is optional and selects how non-96x16 sources map onto the matrix:
+`fit` is optional and selects how the source image maps onto the placement region:
 
-- `letterbox` (default) -- preserve aspect ratio, center on a black 96x16 canvas with bars on the empty axis.
-- `stretch` -- ignore aspect ratio, scale to exactly 96x16 (legacy behavior).
-- `cover` -- preserve aspect ratio, scale to fill the matrix, crop overflow from the center.
+- `letterbox` (default) -- preserve aspect ratio, center on a black canvas with bars on the empty axis.
+- `stretch` -- ignore aspect ratio, scale to exactly the region dimensions (legacy behavior).
+- `cover` -- preserve aspect ratio, scale to fill the region, crop overflow from the center.
+
+`x`, `y`, `width`, `height` are optional and place the image as a sprite on the matrix:
+
+- `x`, `y` default to `0` (top-left corner).
+- `width` of `0` means "fill remaining display width from `x`"; same for `height`.
+- The placement rectangle must fit within the 96x16 display, otherwise the request returns HTTP 500 with an error.
 
 ### POST /display/gif
 
@@ -86,11 +96,15 @@ Verified working end-to-end: base64 PNG -> decode -> resize to 96x16 -> RGB444 -
 {
   "gif_base64": "<base64-encoded GIF>",
   "frame_duration": 100,
-  "fit": "letterbox"
+  "fit": "letterbox",
+  "x": 0,
+  "y": 0,
+  "width": 96,
+  "height": 16
 }
 ```
 
-`fit` accepts the same values as `/display/image`.
+`fit`, `x`, `y`, `width`, `height` accept the same values and defaults as `/display/image`.
 
 ### POST /display/color
 

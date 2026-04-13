@@ -14,14 +14,31 @@ const (
 	TextShowModeScrollRight TextShowMode = 3
 	TextShowModeScrollUp    TextShowMode = 4
 	TextShowModeScrollDown  TextShowMode = 5
-	TextShowModeBlink       TextShowMode = 6
-	TextShowModeFadeIn      TextShowMode = 7
-	TextShowModeFadeOut     TextShowMode = 8
-	TextShowModeZoomIn      TextShowMode = 9
-	TextShowModeZoomOut     TextShowMode = 10
-	TextShowModeRotate      TextShowMode = 11
-	TextShowModeWave        TextShowMode = 12
-	TextShowModeCustom      TextShowMode = 13
+	// TextShowModeWipeDown reveals the image row-by-row from top to bottom on
+	// this firmware. Historically mis-labeled "blink".
+	TextShowModeWipeDown TextShowMode = 6
+	// TextShowModeExpandFromCenter is a horizontal iris-open wipe: pixels
+	// reveal from the center column outward. Historically mis-labeled "fade_in".
+	TextShowModeExpandFromCenter TextShowMode = 7
+	// TextShowModeBlink flashes the full image on and off. Historically
+	// mis-labeled "fade_out".
+	TextShowModeBlink TextShowMode = 8
+	// TextShowModeZoomIn behaves identically to ScrollLeft on this firmware.
+	TextShowModeZoomIn TextShowMode = 9
+	// TextShowModeZoomOut behaves identically to ScrollRight on this firmware.
+	TextShowModeZoomOut TextShowMode = 10
+	// TextShowModeWipeLeft reveals the image column-by-column from right to
+	// left then holds for a few seconds before repeating. APK calls this
+	// "rotate".
+	TextShowModeWipeLeft TextShowMode = 11
+	// TextShowModeWipeRight reveals the image column-by-column from left to
+	// right then holds for a few seconds before repeating. APK calls this
+	// "wave".
+	TextShowModeWipeRight TextShowMode = 12
+	// TextShowModeCollapseToCenter slides pieces of the image in from both
+	// horizontal edges; they meet at the center to form the final frame.
+	// APK calls this "custom".
+	TextShowModeCollapseToCenter TextShowMode = 13
 )
 
 var textShowModeNames = map[TextShowMode]string{
@@ -30,14 +47,14 @@ var textShowModeNames = map[TextShowMode]string{
 	TextShowModeScrollRight: "scroll_right",
 	TextShowModeScrollUp:    "scroll_up",
 	TextShowModeScrollDown:  "scroll_down",
-	TextShowModeBlink:       "blink",
-	TextShowModeFadeIn:      "fade_in",
-	TextShowModeFadeOut:     "fade_out",
-	TextShowModeZoomIn:      "zoom_in",
-	TextShowModeZoomOut:     "zoom_out",
-	TextShowModeRotate:      "rotate",
-	TextShowModeWave:        "wave",
-	TextShowModeCustom:      "custom",
+	TextShowModeWipeDown:         "wipe_down",
+	TextShowModeExpandFromCenter: "expand_from_center",
+	TextShowModeBlink:            "blink",
+	TextShowModeZoomIn:           "zoom_in",
+	TextShowModeZoomOut:          "zoom_out",
+	TextShowModeWipeLeft:         "wipe_left",
+	TextShowModeWipeRight:        "wipe_right",
+	TextShowModeCollapseToCenter: "collapse_to_center",
 }
 
 var textShowModeByName map[string]TextShowMode

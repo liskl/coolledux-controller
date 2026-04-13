@@ -315,8 +315,17 @@ func (c *Controller) DisplayText(ctx context.Context, s string, mode models.Text
 	// that while reusing our verified image upload. Scroll/static modes are
 	// supported by the graffiti packet's own mode byte.
 	runes := []rune(s)
-	centered := mode == models.TextShowModeStatic
-	pixels, err := text.RasterizeByName(runes, pixelColor, fontName, width, height, centered)
+	// Horizontal alignment: only the horizontal-scroll modes need to anchor
+	// text at the exit edge so it traverses the full width on each cycle.
+	// Everything else (static, vertical scrolls, effect modes) centers.
+	hAlign := text.AlignCenter
+	switch mode {
+	case models.TextShowModeScrollLeft:
+		hAlign = text.AlignLeft
+	case models.TextShowModeScrollRight:
+		hAlign = text.AlignRight
+	}
+	pixels, err := text.RasterizeByName(runes, pixelColor, fontName, width, height, hAlign)
 	if err != nil {
 		return fmt.Errorf("selecting font: %w", err)
 	}

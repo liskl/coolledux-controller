@@ -15,7 +15,7 @@ const (
 // effectList is the set of display effects exposed to Home Assistant.
 var effectList = []string{
 	"static", "scroll_left", "scroll_right", "scroll_up", "scroll_down",
-	"blink", "fade_in", "fade_out", "zoom_in", "zoom_out", "rotate", "wave",
+	"wipe_down", "expand_from_center", "blink", "zoom_in", "zoom_out", "wipe_left", "wipe_right", "collapse_to_center",
 }
 
 // fullDevice returns an HADevice with all fields populated (for the primary entity).

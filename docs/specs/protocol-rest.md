@@ -43,7 +43,18 @@ Fiber v2, default port `:8080`.
 }
 ```
 
-`mode` values: `static`, `scroll_left`, `scroll_right`, `scroll_up`, `scroll_down`, `blink`, `fade_in`, `fade_out`, `zoom_in`, `zoom_out`, `rotate`, `wave`
+`mode` values: `static`, `scroll_left`, `scroll_right`, `scroll_up`, `scroll_down`, `wipe_down`, `expand_from_center`, `blink`, `zoom_in`, `zoom_out`, `wipe_left`, `wipe_right`, `collapse_to_center`
+
+Several mode names diverge from the APK's strings because the APK's labels don't match the firmware's actual behavior on this hardware:
+
+- `wipe_down` (mode 6) — reveals the image row-by-row from top to bottom. APK calls this `blink`.
+- `expand_from_center` (mode 7) — horizontal iris-open wipe from the center column outward. APK calls this `fade_in`.
+- `blink` (mode 8) — true on/off flash of the full image. APK calls this `fade_out`.
+- `zoom_in` (mode 9) — behaves identically to `scroll_left` on this firmware.
+- `zoom_out` (mode 10) — behaves identically to `scroll_right` on this firmware.
+- `wipe_left` (mode 11) — column-by-column right-to-left reveal then dwell. APK calls this `rotate`.
+- `wipe_right` (mode 12) — column-by-column left-to-right reveal then dwell. APK calls this `wave`.
+- `collapse_to_center` (mode 13) — pieces of the image slide in from both edges and meet at the center. APK calls this `custom`. Visual mirror of `expand_from_center`.
 
 `font` is optional. Empty/missing selects the default (`7x13`). Unknown names return HTTP 500 with an explanatory error. `GET /fonts` lists what's registered. `font_size` is currently ignored; each registered font has a fixed cell size.
 

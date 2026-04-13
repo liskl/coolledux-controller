@@ -16,14 +16,14 @@ func TestTextShowMode_String(t *testing.T) {
 		{TextShowModeScrollRight, "scroll_right"},
 		{TextShowModeScrollUp, "scroll_up"},
 		{TextShowModeScrollDown, "scroll_down"},
+		{TextShowModeWipeDown, "wipe_down"},
+		{TextShowModeExpandFromCenter, "expand_from_center"},
 		{TextShowModeBlink, "blink"},
-		{TextShowModeFadeIn, "fade_in"},
-		{TextShowModeFadeOut, "fade_out"},
 		{TextShowModeZoomIn, "zoom_in"},
 		{TextShowModeZoomOut, "zoom_out"},
-		{TextShowModeRotate, "rotate"},
-		{TextShowModeWave, "wave"},
-		{TextShowModeCustom, "custom"},
+		{TextShowModeWipeLeft, "wipe_left"},
+		{TextShowModeWipeRight, "wipe_right"},
+		{TextShowModeCollapseToCenter, "collapse_to_center"},
 		{TextShowMode(255), "TextShowMode(255)"},
 	}
 
@@ -47,14 +47,14 @@ func TestParseTextShowMode(t *testing.T) {
 		{"scroll_right", TextShowModeScrollRight, false},
 		{"scroll_up", TextShowModeScrollUp, false},
 		{"scroll_down", TextShowModeScrollDown, false},
+		{"wipe_down", TextShowModeWipeDown, false},
+		{"expand_from_center", TextShowModeExpandFromCenter, false},
 		{"blink", TextShowModeBlink, false},
-		{"fade_in", TextShowModeFadeIn, false},
-		{"fade_out", TextShowModeFadeOut, false},
 		{"zoom_in", TextShowModeZoomIn, false},
 		{"zoom_out", TextShowModeZoomOut, false},
-		{"rotate", TextShowModeRotate, false},
-		{"wave", TextShowModeWave, false},
-		{"custom", TextShowModeCustom, false},
+		{"wipe_left", TextShowModeWipeLeft, false},
+		{"wipe_right", TextShowModeWipeRight, false},
+		{"collapse_to_center", TextShowModeCollapseToCenter, false},
 		{"STATIC", TextShowModeStatic, false},
 		{"Scroll_Left", TextShowModeScrollLeft, false},
 		{"invalid", 0, true},
@@ -230,10 +230,10 @@ func TestTextShowMode_RoundTrip(t *testing.T) {
 	// Every named mode should round-trip through String() -> ParseTextShowMode().
 	allModes := []TextShowMode{
 		TextShowModeStatic, TextShowModeScrollLeft, TextShowModeScrollRight,
-		TextShowModeScrollUp, TextShowModeScrollDown, TextShowModeBlink,
-		TextShowModeFadeIn, TextShowModeFadeOut, TextShowModeZoomIn,
-		TextShowModeZoomOut, TextShowModeRotate, TextShowModeWave,
-		TextShowModeCustom,
+		TextShowModeScrollUp, TextShowModeScrollDown, TextShowModeWipeDown,
+		TextShowModeExpandFromCenter, TextShowModeBlink, TextShowModeZoomIn,
+		TextShowModeZoomOut, TextShowModeWipeLeft, TextShowModeWipeRight,
+		TextShowModeCollapseToCenter,
 	}
 
 	for _, mode := range allModes {
@@ -269,7 +269,7 @@ func TestFlipMode_RoundTrip(t *testing.T) {
 
 func TestParseTextShowMode_CaseInsensitive(t *testing.T) {
 	// Verify case-insensitivity works for mixed case.
-	inputs := []string{"STATIC", "Static", "sTaTiC", "scroll_LEFT", "FADE_IN"}
+	inputs := []string{"STATIC", "Static", "sTaTiC", "scroll_LEFT", "EXPAND_FROM_CENTER"}
 	for _, input := range inputs {
 		t.Run(input, func(t *testing.T) {
 			_, err := ParseTextShowMode(input)

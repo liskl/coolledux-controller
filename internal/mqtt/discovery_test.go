@@ -57,8 +57,8 @@ func TestBuildLightConfig(t *testing.T) {
 			if !cfg.Effect {
 				t.Error("effect should be true")
 			}
-			if len(cfg.EffectList) != 12 {
-				t.Errorf("effect_list: expected 12 entries, got %d", len(cfg.EffectList))
+			if len(cfg.EffectList) != 13 {
+				t.Errorf("effect_list: expected 13 entries, got %d", len(cfg.EffectList))
 			}
 			if cfg.PayloadAvailable != "online" {
 				t.Errorf("payload_available: expected %q, got %q", "online", cfg.PayloadAvailable)
@@ -192,7 +192,7 @@ func TestBuildBrightnessSensorConfig(t *testing.T) {
 func TestEffectListContents(t *testing.T) {
 	expectedEffects := []string{
 		"static", "scroll_left", "scroll_right", "scroll_up", "scroll_down",
-		"blink", "fade_in", "fade_out", "zoom_in", "zoom_out", "rotate", "wave",
+		"wipe_down", "expand_from_center", "blink", "zoom_in", "zoom_out", "wipe_left", "wipe_right", "collapse_to_center",
 	}
 
 	_, payload := BuildLightConfig("test", "test", "ha")

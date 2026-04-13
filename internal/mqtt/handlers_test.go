@@ -180,7 +180,7 @@ func TestHandleLightCommand_StateAndColor_Disconnected(t *testing.T) {
 func TestHandleLightCommand_ColorAndEffect(t *testing.T) {
 	h := testHandler()
 
-	payload := `{"color":{"r":100,"g":50,"b":25},"effect":"blink"}`
+	payload := `{"color":{"r":100,"g":50,"b":25},"effect":"wipe_down"}`
 	err := h.HandleLightCommand([]byte(payload))
 	// No controller calls needed (color and effect are state-only), so no error.
 	if err != nil {
@@ -195,7 +195,7 @@ func TestHandleLightCommand_ColorAndEffect(t *testing.T) {
 	if s.Color == nil || s.Color.R != 100 || s.Color.G != 50 || s.Color.B != 25 {
 		t.Errorf("color not updated: got %+v", s.Color)
 	}
-	if s.Effect != "blink" {
+	if s.Effect != "wipe_down" {
 		t.Errorf("effect not updated: expected 'blink', got %q", s.Effect)
 	}
 }

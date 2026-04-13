@@ -199,6 +199,15 @@ func RenderPerRune(runes []rune, colors []uint32, showWidth, textSpacing int, ce
 	return out
 }
 
+// HAlign is a horizontal alignment hint for rasterized text.
+type HAlign int
+
+const (
+	AlignLeft   HAlign = 0
+	AlignCenter HAlign = 1
+	AlignRight  HAlign = 2
+)
+
 // Rasterize renders runes into an RGB444 column-major pixel buffer sized to
 // fit a canvas of canvasWidth × canvasHeight. The string is centered
 // horizontally; if it exceeds canvasWidth it is truncated. Each "on" pixel
@@ -208,38 +217,35 @@ func RenderPerRune(runes []rune, colors []uint32, showWidth, textSpacing int, ce
 //
 // Uses the default font. For a specific face use RasterizeWithFace.
 func Rasterize(runes []rune, colorRGB uint32, canvasWidth, canvasHeight int) []byte {
-	return RasterizeWithFace(runes, colorRGB, MonoFace, canvasWidth, canvasHeight, true)
+	return RasterizeWithFace(runes, colorRGB, MonoFace, canvasWidth, canvasHeight, AlignCenter)
 }
 
-// RasterizeAt is like Rasterize but renders the string starting at column 0
-// (no centering). Useful for scroll modes where the device handles movement.
+// RasterizeAt is like Rasterize but renders the string left-justified.
+// Useful for scroll-left mode where the device handles movement.
 func RasterizeAt(runes []rune, colorRGB uint32, canvasWidth, canvasHeight int) []byte {
-	return RasterizeWithFace(runes, colorRGB, MonoFace, canvasWidth, canvasHeight, false)
+	return RasterizeWithFace(runes, colorRGB, MonoFace, canvasWidth, canvasHeight, AlignLeft)
 }
 
-// RasterizeWithFace renders runes using the given font face. face may come
-// from the Registry or be any font.Face. When centered is true, the string
-// is horizontally centered within canvasWidth; otherwise it starts at x=0.
-// Vertical centering uses the face's Ascent/Descent metrics, optionally
-// adjusted by baselineOffset (positive shifts ink down).
-func RasterizeWithFace(runes []rune, colorRGB uint32, face font.Face, canvasWidth, canvasHeight int, centered bool) []byte {
-	return rasterizeWithFace(runes, colorRGB, face, canvasWidth, canvasHeight, centered, 0)
+// RasterizeWithFace renders runes using the given font face with the given
+// horizontal alignment. Vertical centering uses the face's metrics.
+func RasterizeWithFace(runes []rune, colorRGB uint32, face font.Face, canvasWidth, canvasHeight int, hAlign HAlign) []byte {
+	return rasterizeWithFace(runes, colorRGB, face, canvasWidth, canvasHeight, hAlign, 0)
 }
 
 // RasterizeByName looks up a registered font by name and rasterizes runes
-// using it. An empty name selects the default font. Returns an error if the
-// name is not registered.
-func RasterizeByName(runes []rune, colorRGB uint32, fontName string, canvasWidth, canvasHeight int, centered bool) ([]byte, error) {
+// using it with the given horizontal alignment. An empty name selects the
+// default font. Returns an error if the name is not registered.
+func RasterizeByName(runes []rune, colorRGB uint32, fontName string, canvasWidth, canvasHeight int, hAlign HAlign) ([]byte, error) {
 	face, err := Face(fontName)
 	if err != nil {
 		return nil, err
 	}
-	return rasterizeWithFace(runes, colorRGB, face, canvasWidth, canvasHeight, centered, BaselineOffset(fontName)), nil
+	return rasterizeWithFace(runes, colorRGB, face, canvasWidth, canvasHeight, hAlign, BaselineOffset(fontName)), nil
 }
 
 // rasterizeWithFace is the internal variant that also takes a per-font
 // baseline offset.
-func rasterizeWithFace(runes []rune, colorRGB uint32, face font.Face, canvasWidth, canvasHeight int, centered bool, baselineOffset int) []byte {
+func rasterizeWithFace(runes []rune, colorRGB uint32, face font.Face, canvasWidth, canvasHeight int, hAlign HAlign, baselineOffset int) []byte {
 	img := image.NewRGBA(image.Rect(0, 0, canvasWidth, canvasHeight))
 
 	textColor := color.RGBA{
@@ -251,8 +257,13 @@ func rasterizeWithFace(runes []rune, colorRGB uint32, face font.Face, canvasWidt
 
 	strPixels := font.MeasureString(face, string(runes)).Round()
 	startX := 0
-	if centered && strPixels < canvasWidth {
-		startX = (canvasWidth - strPixels) / 2
+	if strPixels < canvasWidth {
+		switch hAlign {
+		case AlignCenter:
+			startX = (canvasWidth - strPixels) / 2
+		case AlignRight:
+			startX = canvasWidth - strPixels
+		}
 	}
 
 	m := face.Metrics()

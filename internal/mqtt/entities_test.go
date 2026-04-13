@@ -86,7 +86,7 @@ func TestLightState_Marshal(t *testing.T) {
 }
 
 func TestLightState_Unmarshal(t *testing.T) {
-	input := `{"state":"ON","brightness":150,"color":{"r":10,"g":20,"b":30},"effect":"blink"}`
+	input := `{"state":"ON","brightness":150,"color":{"r":10,"g":20,"b":30},"effect":"wipe_down"}`
 	var s LightState
 	if err := json.Unmarshal([]byte(input), &s); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -103,8 +103,8 @@ func TestLightState_Unmarshal(t *testing.T) {
 	if s.Color.R != 10 || s.Color.G != 20 || s.Color.B != 30 {
 		t.Errorf("color: expected (10,20,30), got (%d,%d,%d)", s.Color.R, s.Color.G, s.Color.B)
 	}
-	if s.Effect != "blink" {
-		t.Errorf("effect: expected blink, got %s", s.Effect)
+	if s.Effect != "wipe_down" {
+		t.Errorf("effect: expected wipe_down, got %s", s.Effect)
 	}
 }
 

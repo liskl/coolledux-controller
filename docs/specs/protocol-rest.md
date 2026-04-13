@@ -56,6 +56,8 @@ Several mode names diverge from the APK's strings because the APK's labels don't
 - `wipe_right` (mode 12) — column-by-column left-to-right reveal then dwell. APK calls this `wave`.
 - `collapse_to_center` (mode 13) — pieces of the image slide in from both edges and meet at the center. APK calls this `custom`. Visual mirror of `expand_from_center`.
 
+Modes 14+ were probed during development and either silently render nothing or fall back to `scroll_left` behavior. Only modes 1..13 produce distinct animations on this firmware.
+
 `font` is optional. Empty/missing selects the default (`7x13`). Unknown names return HTTP 500 with an explanatory error. `GET /fonts` lists what's registered. `font_size` is currently ignored; each registered font has a fixed cell size.
 
 ### POST /display/image

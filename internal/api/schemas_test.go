@@ -19,7 +19,7 @@ func TestParseColor(t *testing.T) {
 		{"mixed case", "#aAbBcC", 0xAABBCC, false},
 		{"lowercase", "#ff8800", 0xFF8800, false},
 		{"short invalid", "XYZ", 0, true},
-		{"empty string", "", 0, true},
+		{"empty string", "", 0, false}, // "" means "leave current color alone"
 		{"invalid hex", "#GG0000", 0, true},
 		{"too short with hash", "#FFF", 0, true},
 		{"too long", "#FFFFFFF", 0, true},

@@ -5,18 +5,19 @@ import "image/color"
 // RGB444Transfer converts an 8-bit color channel value to a 4-bit (0-15)
 // value using the CoolLEDUX piecewise transfer function.
 //
+// Source: TextEmojiManagerCoolLEDUX.rgb444Transfer (APK decompilation).
 // The mapping is NOT a simple bit shift:
 //   - >= 238 -> 15
-//   - <= 30  -> 0
-//   - else   -> (value - 30) / 15 + 1
+//   - <= 47  -> 0
+//   - else   -> (value - 47) / 14 + 1
 func RGB444Transfer(value uint8) uint8 {
 	if value >= 238 {
 		return 15
 	}
-	if value <= 30 {
+	if value <= 47 {
 		return 0
 	}
-	return uint8((int(value)-30)/15 + 1)
+	return uint8((int(value)-47)/14 + 1)
 }
 
 // EncodePixelRGB444 converts an RGB888 pixel to the 2-byte RGB444 format

@@ -844,6 +844,70 @@ func TestRecoveryMiddleware_PanicHandler(t *testing.T) {
 	}
 }
 
+func TestSetColor_ValidBody_Disconnected(t *testing.T) {
+	srv := testServer(t)
+
+	body := strings.NewReader(`{"color":"#FF8800"}`)
+	req, err := http.NewRequest(http.MethodPost, "/display/color", body)
+	if err != nil {
+		t.Fatalf("creating request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := srv.app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("executing request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Parsing succeeds; controller errors because BLE is disconnected.
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", resp.StatusCode)
+	}
+}
+
+func TestSetColor_InvalidColor(t *testing.T) {
+	srv := testServer(t)
+
+	body := strings.NewReader(`{"color":"not-a-color"}`)
+	req, err := http.NewRequest(http.MethodPost, "/display/color", body)
+	if err != nil {
+		t.Fatalf("creating request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := srv.app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("executing request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestSetColor_InvalidBody(t *testing.T) {
+	srv := testServer(t)
+
+	body := strings.NewReader(`{bad json`)
+	req, err := http.NewRequest(http.MethodPost, "/display/color", body)
+	if err != nil {
+		t.Fatalf("creating request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := srv.app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("executing request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
 func TestCORSMiddleware_EmptyOrigins(t *testing.T) {
 	cfg := testConfig()
 	cfg.API.CORSOrigins = []string{}

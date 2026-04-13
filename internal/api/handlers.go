@@ -10,6 +10,7 @@ import (
 	"github.com/liskl/coolledux-controller/internal/controller"
 	"github.com/liskl/coolledux-controller/internal/models"
 	"github.com/liskl/coolledux-controller/internal/protocol"
+	"github.com/liskl/coolledux-controller/internal/text"
 )
 
 // Handlers holds the dependencies for all HTTP route handlers.
@@ -256,7 +257,53 @@ func (h *Handlers) DisplayText(c *fiber.Ctx) error {
 		})
 	}
 
-	if err := h.ctrl.DisplayText(c.Context(), req.Text, mode, req.Speed, req.StayTime, req.FontSize, color); err != nil {
+	if err := h.ctrl.DisplayText(c.Context(), req.Text, mode, req.Speed, req.StayTime, req.FontSize, color, req.Font); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+	}
+	return c.JSON(SuccessResponse{Success: true})
+}
+
+// ListFonts returns all font faces available for /display/text.
+func (h *Handlers) ListFonts(c *fiber.Ctx) error {
+	available := text.AvailableFonts()
+	out := FontsResponse{
+		Default: text.DefaultFontName,
+		Fonts:   make([]FontInfoResponse, 0, len(available)),
+	}
+	for _, f := range available {
+		out.Fonts = append(out.Fonts, FontInfoResponse{
+			Name:        f.Name,
+			Description: f.Description,
+			AdvancePx:   f.Width,
+			LinePx:      f.Height,
+			Monospace:   f.Monospace,
+		})
+	}
+	return c.JSON(out)
+}
+
+// SetColor sets the device's global tint color.
+func (h *Handlers) SetColor(c *fiber.Ctx) error {
+	var req ColorRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+			Success: false,
+			Error:   "invalid request body: " + err.Error(),
+		})
+	}
+
+	color, err := parseColor(req.Color)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+	}
+
+	if err := h.ctrl.SetColor(c.Context(), color); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),

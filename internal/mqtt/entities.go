@@ -82,6 +82,7 @@ type TextCommand struct {
 	Speed    uint8  `json:"speed"`
 	Color    string `json:"color"`
 	FontSize int    `json:"font_size"`
+	Font     string `json:"font"`
 }
 
 // ImageCommand is the JSON received on the image set topic.

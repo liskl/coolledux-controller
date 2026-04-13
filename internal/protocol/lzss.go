@@ -1,6 +1,7 @@
 package protocol
 
-// Compress applies LZSS compression to data.
+// Compress applies LZSS compression to data, matching the CoolLED 1248 Android
+// reference implementation. Ported from the Python SDK's LZSSCompressor.
 //
 // Returns the compressed output and true if compression reduced size.
 // Returns the original data and false if compression was not beneficial.
@@ -9,7 +10,7 @@ package protocol
 //   - Window size: 512 bytes
 //   - Lookahead size: 18 bytes
 //   - Match threshold: 2 (matches of 2 or fewer bytes are stored as literals)
-//   - Initial buffer position: 494 (WindowSize - LookaheadSize)
+//   - Initial write pointer: 494 (WindowSize - LookaheadSize)
 //
 // Encoding: groups of 8 operations preceded by a 1-byte flag.
 // Flag bit=1 means literal (1 byte), flag bit=0 means match ref (2 bytes).
@@ -19,77 +20,94 @@ func Compress(data []byte) ([]byte, bool) {
 		return data, false
 	}
 
-	// Initialize the sliding window buffer with zeros.
-	buf := make([]byte, LZSSWindowSize+LZSSLookaheadSize)
-	bufPos := LZSSInitBufPos
-
-	// Copy input into the lookahead portion.
-	lookahead := len(data)
-	if lookahead > LZSSLookaheadSize {
-		lookahead = LZSSLookaheadSize
-	}
-	copy(buf[bufPos:], data[:lookahead])
+	buf := make([]byte, LZSSWindowSize)
+	r := LZSSInitBufPos // write pointer into the sliding window
+	historyLen := 0     // bytes actually written to the window (grows up to WindowSize)
 
 	var result []byte
-	srcPos := 0
+	codeBuf := make([]byte, 17)
+	codeBufPtr := 1
+	var flags byte
+	flagMask := byte(1)
 
-	for srcPos < len(data) {
-		// Collect up to 8 operations into a group.
-		var flag byte
-		var groupBuf []byte
+	pos := 0
+	for pos < len(data) {
+		maxMatch := LZSSLookaheadSize
+		if rem := len(data) - pos; rem < maxMatch {
+			maxMatch = rem
+		}
+		matchLen := 0
+		matchPos := 0
 
-		for bit := 0; bit < 8 && srcPos < len(data); bit++ {
-			// Search for the longest match in the window.
-			bestLen := 0
-			bestPos := 0
-
-			searchStart := 0
-			if bufPos > LZSSWindowSize {
-				searchStart = bufPos - LZSSWindowSize
+		// Only search within actual history, scanning by distance (most-recent first).
+		if historyLen > 0 {
+			maxSearch := historyLen
+			if maxSearch > LZSSWindowSize {
+				maxSearch = LZSSWindowSize
 			}
-
-			remaining := len(data) - srcPos
-			maxMatch := LZSSLookaheadSize
-			if remaining < maxMatch {
-				maxMatch = remaining
-			}
-
-			for s := searchStart; s < bufPos; s++ {
-				matchLen := 0
-				for matchLen < maxMatch && buf[(s+matchLen)%LZSSWindowSize] == data[srcPos+matchLen] {
-					matchLen++
+			for dist := 1; dist <= maxSearch; dist++ {
+				idx := (r - dist) & (LZSSWindowSize - 1)
+				// Self-referential matches (matchLen > dist) are valid in
+				// standard Okumura LZSS but the CoolLEDUX firmware decoder
+				// does not handle them correctly -- it produces an off-by-one
+				// byte past the reference distance. Cap extension at `dist`
+				// bytes so every emitted match is pure non-overlapping copy.
+				extMax := maxMatch
+				if dist < extMax {
+					extMax = dist
 				}
-				if matchLen > bestLen {
-					bestLen = matchLen
-					bestPos = s % LZSSWindowSize
+				length := 0
+				for length < extMax {
+					if buf[(idx+length)&(LZSSWindowSize-1)] != data[pos+length] {
+						break
+					}
+					length++
 				}
-			}
-
-			if bestLen > LZSSMatchThreshold {
-				// Match reference: 2 bytes.
-				byte0 := byte(bestPos & 0xFF)
-				byte1 := byte(((bestPos >> 4) & 0xF0) | ((bestLen - 3) & 0x0F))
-				groupBuf = append(groupBuf, byte0, byte1)
-				// flag bit stays 0 (match)
-
-				// Advance buffer and source.
-				for i := 0; i < bestLen; i++ {
-					buf[bufPos%LZSSWindowSize] = data[srcPos]
-					bufPos++
-					srcPos++
+				if length > matchLen {
+					matchLen = length
+					matchPos = idx
+					if matchLen == maxMatch {
+						break
+					}
 				}
-			} else {
-				// Literal byte.
-				flag |= 1 << bit
-				groupBuf = append(groupBuf, data[srcPos])
-				buf[bufPos%LZSSWindowSize] = data[srcPos]
-				bufPos++
-				srcPos++
 			}
 		}
 
-		result = append(result, flag)
-		result = append(result, groupBuf...)
+		if matchLen > LZSSMatchThreshold {
+			codeBuf[codeBufPtr] = byte(matchPos & 0xFF)
+			codeBuf[codeBufPtr+1] = byte(((matchPos >> 4) & 0xF0) | ((matchLen - 3) & 0x0F))
+			codeBufPtr += 2
+		} else {
+			matchLen = 1
+			flags |= flagMask
+			codeBuf[codeBufPtr] = data[pos]
+			codeBufPtr++
+		}
+
+		flagMask <<= 1
+		if flagMask == 0 { // completed a group of 8
+			codeBuf[0] = flags
+			result = append(result, codeBuf[:codeBufPtr]...)
+			codeBuf = make([]byte, 17)
+			codeBufPtr = 1
+			flags = 0
+			flagMask = 1
+		}
+
+		for i := 0; i < matchLen; i++ {
+			buf[r] = data[pos+i]
+			r = (r + 1) & (LZSSWindowSize - 1)
+		}
+		historyLen += matchLen
+		if historyLen > LZSSWindowSize {
+			historyLen = LZSSWindowSize
+		}
+		pos += matchLen
+	}
+
+	if codeBufPtr > 1 {
+		codeBuf[0] = flags
+		result = append(result, codeBuf[:codeBufPtr]...)
 	}
 
 	if len(result) < len(data) {
@@ -98,58 +116,55 @@ func Compress(data []byte) ([]byte, bool) {
 	return data, false
 }
 
-// Decompress reverses LZSS compression.
-//
-// The input must be data produced by Compress. Reads groups of 8 operations
-// each preceded by a flag byte. Flag bit=1 means literal, bit=0 means match
-// reference (2 bytes decoded as position+length).
+// Decompress reverses LZSS compression, matching the CoolLED 1248 Android
+// reference implementation. Ported from the Python SDK's LZSSCompressor.
 func Decompress(data []byte) []byte {
 	if len(data) == 0 {
 		return data
 	}
 
 	buf := make([]byte, LZSSWindowSize)
-	bufPos := LZSSInitBufPos
+	r := LZSSInitBufPos
+	var out []byte
 
-	var result []byte
-	pos := 0
-
-	for pos < len(data) {
-		if pos >= len(data) {
-			break
+	idx := 0
+	flags := uint32(0)
+	for idx < len(data) {
+		flags >>= 1
+		if flags&0x100 == 0 {
+			if idx >= len(data) {
+				break
+			}
+			flags = uint32(data[idx]) | 0xFF00
+			idx++
 		}
-		flag := data[pos]
-		pos++
-
-		for bit := 0; bit < 8 && pos < len(data); bit++ {
-			if flag&(1<<bit) != 0 {
-				// Literal byte.
-				b := data[pos]
-				pos++
-				result = append(result, b)
-				buf[bufPos%LZSSWindowSize] = b
-				bufPos++
-			} else {
-				// Match reference (2 bytes).
-				if pos+1 >= len(data) {
-					return result
-				}
-				byte0 := data[pos]
-				byte1 := data[pos+1]
-				pos += 2
-
-				matchPos := int(byte0) | (int(byte1&0xF0) << 4)
-				matchLen := int(byte1&0x0F) + 3
-
-				for i := 0; i < matchLen; i++ {
-					b := buf[(matchPos+i)%LZSSWindowSize]
-					result = append(result, b)
-					buf[bufPos%LZSSWindowSize] = b
-					bufPos++
-				}
+		if flags&1 != 0 {
+			if idx >= len(data) {
+				break
+			}
+			b := data[idx]
+			idx++
+			out = append(out, b)
+			buf[r] = b
+			r = (r + 1) & (LZSSWindowSize - 1)
+		} else {
+			if idx+1 >= len(data) {
+				break
+			}
+			low := data[idx]
+			high := data[idx+1]
+			idx += 2
+			matchPos := (int(low) | (int(high&0xF0) << 4)) & (LZSSWindowSize - 1)
+			matchLen := int(high&0x0F) + 3
+			for i := 0; i < matchLen; i++ {
+				b := buf[matchPos]
+				matchPos = (matchPos + 1) & (LZSSWindowSize - 1)
+				out = append(out, b)
+				buf[r] = b
+				r = (r + 1) & (LZSSWindowSize - 1)
 			}
 		}
 	}
 
-	return result
+	return out
 }

@@ -308,3 +308,62 @@ func TestBuildDeviceInfoCommand(t *testing.T) {
 		t.Errorf("command code = 0x%02X, want 0x%02X (CMD_DEVICE_INFO)", payload[0], CMD_DEVICE_INFO)
 	}
 }
+
+func TestBuildColorCommand(t *testing.T) {
+	tests := []struct {
+		name       string
+		r, g, b    uint8
+		wantR4     uint8 // nibble
+		wantG4     uint8
+		wantB4     uint8
+	}{
+		{"black", 0, 0, 0, 0, 0, 0},
+		{"white", 255, 255, 255, 15, 15, 15},
+		{"pure_red", 255, 0, 0, 15, 0, 0},
+		{"pure_green", 0, 255, 0, 0, 15, 0},
+		{"pure_blue", 0, 0, 255, 0, 0, 15},
+		{"near_white_boundary", 238, 238, 238, 15, 15, 15},
+		{"at_black_threshold", 47, 47, 47, 0, 0, 0}, // v<=47 -> 0
+		{"just_above_threshold", 48, 48, 48, 1, 1, 1},
+		{"mid", 128, 128, 128, 6, 6, 6}, // (128-47)/14+1 = 6
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			frame := BuildColorCommand(tt.r, tt.g, tt.b)
+			payload := roundTripCommand(t, frame)
+
+			// payload: [CMD_COLOR][COLOR_SUBTYPE_SINGLE][0R][GB][CRC32 x4]
+			if len(payload) != 8 {
+				t.Fatalf("payload length = %d, want 8", len(payload))
+			}
+			if payload[0] != CMD_COLOR {
+				t.Errorf("command code = 0x%02X, want 0x%02X", payload[0], CMD_COLOR)
+			}
+			if payload[1] != COLOR_SUBTYPE_SINGLE {
+				t.Errorf("subtype = 0x%02X, want 0x%02X", payload[1], COLOR_SUBTYPE_SINGLE)
+			}
+			if payload[2] != tt.wantR4 {
+				t.Errorf("R byte = 0x%02X, want 0x%02X", payload[2], tt.wantR4)
+			}
+			if got := (payload[3] >> 4) & 0x0F; got != tt.wantG4 {
+				t.Errorf("G nibble = 0x%X, want 0x%X", got, tt.wantG4)
+			}
+			if got := payload[3] & 0x0F; got != tt.wantB4 {
+				t.Errorf("B nibble = 0x%X, want 0x%X", got, tt.wantB4)
+			}
+
+			verifyCRC(t, payload)
+		})
+	}
+}
+
+func TestBuildColorCommandMatchesAPKPattern(t *testing.T) {
+	// White (#FFFFFF) produces [0x0F, 0xFF] per the APK's two-byte RGB444 layout.
+	frame := BuildColorCommand(255, 255, 255)
+	payload := roundTripCommand(t, frame)
+	want := []byte{CMD_COLOR, COLOR_SUBTYPE_SINGLE, 0x0F, 0xFF}
+	if !bytes.Equal(payload[:4], want) {
+		t.Errorf("header = % X, want % X", payload[:4], want)
+	}
+}

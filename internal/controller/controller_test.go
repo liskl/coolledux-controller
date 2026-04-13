@@ -720,7 +720,7 @@ func TestDisplayGIF_InvalidGIF(t *testing.T) {
 
 func TestDisplayText_NotConnected(t *testing.T) {
 	ctrl := testController()
-	err := ctrl.DisplayText(context.Background(), "Hello", models.TextShowModeStatic, 5, 0, 16, 0xFFFFFF)
+	err := ctrl.DisplayText(context.Background(), "Hello", models.TextShowModeStatic, 5, 0, 16, 0xFFFFFF, "")
 	if err == nil {
 		t.Fatal("expected error from DisplayText when not connected")
 	}
@@ -997,15 +997,52 @@ func TestDisplayText_Connected(t *testing.T) {
 	ctrl, transport, client := connectedController()
 	defer client.OverrideConnectedForTest(false)
 
-	// sendProgram needs: 1 response for program start, N responses for data chunks.
-	// For a small text program the payload fits in 1 chunk, so 2 responses total.
+	// Custom-color text is a single self-contained program upload; no 0x13
+	// SetColor precedes it.
 	go func() {
 		transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_PROGRAM_START))
-		transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_PROGRAM_DATA))
+		for i := 0; i < 20; i++ {
+			transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_PROGRAM_DATA))
+		}
 	}()
 
-	err := ctrl.DisplayText(context.Background(), "Hello", models.TextShowModeStatic, 5, 0, 16, 0xFFFFFF)
+	err := ctrl.DisplayText(context.Background(), "Hello", models.TextShowModeStatic, 5, 0, 16, 0xFFFFFF, "")
 	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDisplayText_ZeroColorDefaultsToWhite(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+
+	go func() {
+		transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_PROGRAM_START))
+		for i := 0; i < 20; i++ {
+			transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_PROGRAM_DATA))
+		}
+	}()
+
+	err := ctrl.DisplayText(context.Background(), "Hi", models.TextShowModeScrollLeft, 5, 0, 16, 0, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSetColor_NotConnected(t *testing.T) {
+	ctrl := testController()
+	if err := ctrl.SetColor(context.Background(), 0xFF8800); err == nil {
+		t.Fatal("expected error from SetColor when not connected")
+	}
+}
+
+func TestSetColor_Connected(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+
+	go func() { transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_COLOR)) }()
+
+	if err := ctrl.SetColor(context.Background(), 0xFF8800); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

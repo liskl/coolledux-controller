@@ -13,6 +13,7 @@ import (
 	ledimage "github.com/liskl/coolledux-controller/internal/image"
 	"github.com/liskl/coolledux-controller/internal/models"
 	"github.com/liskl/coolledux-controller/internal/protocol"
+	"github.com/liskl/coolledux-controller/internal/text"
 )
 
 // Controller orchestrates BLE communication with the CoolLEDUX LED matrix.
@@ -135,6 +136,25 @@ func (c *Controller) SetChannel(ctx context.Context, channel uint8) error {
 		return fmt.Errorf("channel command rejected: %w", err)
 	}
 	c.logger.Info("channel set", "channel", channel)
+	return nil
+}
+
+// SetColor sets the device's global tint color (command 0x13 subtype 0x01).
+// The low 24 bits of rgb are interpreted as 0xRRGGBB. Monochrome text content
+// is rendered in this color until another color is set.
+func (c *Controller) SetColor(ctx context.Context, rgb uint32) error {
+	r := uint8((rgb >> 16) & 0xFF)
+	g := uint8((rgb >> 8) & 0xFF)
+	b := uint8(rgb & 0xFF)
+	cmd := protocol.BuildColorCommand(r, g, b)
+	resp, err := c.transport.SendAndWait(ctx, cmd, protocol.CommandTimeout)
+	if err != nil {
+		return fmt.Errorf("setting color: %w", err)
+	}
+	if err := checkResponse(resp, protocol.RESPONSE_TYPE_COLOR); err != nil {
+		return fmt.Errorf("color command rejected: %w", err)
+	}
+	c.logger.Info("color set", "rgb", fmt.Sprintf("#%06X", rgb&0xFFFFFF))
 	return nil
 }
 
@@ -271,21 +291,55 @@ func (c *Controller) DisplayGIF(ctx context.Context, gifData []byte, frameDurati
 	return nil
 }
 
-// DisplayText creates a text program payload and uploads it to the device.
-// Font rendering is not yet implemented; this sends a placeholder text program
-// with empty glyph data.
-func (c *Controller) DisplayText(ctx context.Context, text string, mode models.TextShowMode, speed, stayTime uint8, fontSize int, color uint32) error {
+// DisplayText renders a string using the embedded 16-row bold bitmap font and
+// uploads it as a text content program (content type 0x01).
+//
+// The device colorizes monochrome text using its current global color; the
+// color argument is accepted for API stability but currently ignored pending
+// wiring of the 0x13 color-control command.
+//
+// fontSize is reserved for future multi-size support; only the 16-row font is
+// shipped today.
+func (c *Controller) DisplayText(ctx context.Context, s string, mode models.TextShowMode, speed, stayTime uint8, fontSize int, color uint32, fontName string) error {
 	width := c.cfg.Display.Columns
 	height := c.cfg.Display.Rows
 
-	// Placeholder: no rendered glyph data yet.
-	programPayload := buildTextProgram(width, height, mode, speed, stayTime, 0, nil)
+	pixelColor := color
+	if pixelColor == 0 {
+		pixelColor = 0xFFFFFF
+	}
+
+	// Rasterize text locally into an RGB444 pixel buffer and ship it via the
+	// proven graffiti path (content type 0x02). Content type 0x01 appears to
+	// not be honored on this firmware revision; rasterizing locally sidesteps
+	// that while reusing our verified image upload. Scroll/static modes are
+	// supported by the graffiti packet's own mode byte.
+	runes := []rune(s)
+	centered := mode == models.TextShowModeStatic
+	pixels, err := text.RasterizeByName(runes, pixelColor, fontName, width, height, centered)
+	if err != nil {
+		return fmt.Errorf("selecting font: %w", err)
+	}
+	programPayload := buildGraffitiProgram(width, height, mode, speed, stayTime, pixels)
 
 	if err := c.sendProgram(ctx, programPayload); err != nil {
 		return fmt.Errorf("sending text program: %w", err)
 	}
 
-	c.logger.Info("text displayed (placeholder)", "text", text, "fontSize", fontSize, "color", color)
+	resolvedFont := fontName
+	if resolvedFont == "" {
+		resolvedFont = text.DefaultFontName
+	}
+
+	c.logger.Info("text displayed",
+		"text", s,
+		"mode", mode.String(),
+		"runes", len(runes),
+		"pixel_bytes", len(pixels),
+		"font", resolvedFont,
+		"font_size", fontSize,
+		"color", fmt.Sprintf("#%06X", color&0xFFFFFF),
+	)
 	return nil
 }
 
@@ -544,6 +598,46 @@ func buildTextProgram(width, height int, mode models.TextShowMode, speed, stayTi
 	if len(textData) > 0 {
 		copy(content[26:], textData)
 	}
+
+	return wrapProgram(content)
+}
+
+// buildCustomColorTextProgram assembles a text content packet that uses the
+// device's embedded font and a per-character RGB444 color list (content
+// type 0x06). The payload carries only widths + colors; the device renders
+// the glyphs from its own font ROM.
+//
+//	Content: [totalLen:4 BE][0x06][0x00 x 5][moveSpace:2 BE]
+//	         [startCol:2 BE][startRow:2 BE][showWidth:2 BE][showHeight:2 BE]
+//	         [mode:1][speed:1][stayTime:1][0x00]
+//	         [textNumber:2 BE][allTextWidth:2 BE]
+//	         [widths: N bytes][colors: 2N bytes, each [0R, GB]]
+func buildCustomColorTextProgram(width, height int, mode models.TextShowMode, speed, stayTime uint8, widths []byte, colors []byte) []byte {
+	contentLen := 24 + 4 + len(widths) + len(colors)
+
+	content := make([]byte, contentLen)
+	binary.BigEndian.PutUint32(content[0:4], uint32(contentLen))
+	content[4] = 0x06 // custom-color text content type
+	// content[5:10] reserved zeros
+	binary.BigEndian.PutUint16(content[10:12], 0)             // moveSpace
+	binary.BigEndian.PutUint16(content[12:14], 0)             // start column
+	binary.BigEndian.PutUint16(content[14:16], 0)             // start row
+	binary.BigEndian.PutUint16(content[16:18], uint16(width)) // show width
+	binary.BigEndian.PutUint16(content[18:20], uint16(height))
+	content[20] = uint8(mode)
+	content[21] = speed
+	content[22] = stayTime
+	content[23] = 0x00 // reserved
+	binary.BigEndian.PutUint16(content[24:26], uint16(len(widths)))
+	totalCols := 0
+	for _, w := range widths {
+		totalCols += int(w)
+	}
+	binary.BigEndian.PutUint16(content[26:28], uint16(totalCols))
+	off := 28
+	copy(content[off:], widths)
+	off += len(widths)
+	copy(content[off:], colors)
 
 	return wrapProgram(content)
 }

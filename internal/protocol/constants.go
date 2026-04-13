@@ -18,7 +18,15 @@ const (
 	CMD_FLIP       byte = 0x0C // Verified: 0=none, 1=horizontal, 2=vertical, 3=both (SDK says 0x07)
 	CMD_CHECK_PASSWORD byte = 0x0D // Password check with XOR encoding
 	CMD_SET_PASSWORD   byte = 0x0E // Password set with XOR encoding
+	CMD_COLOR          byte = 0x13 // Global color control. Subtype 0x01=single color, 0x02=speed, 0x03=mode.
 	CMD_DEVICE_INFO    byte = 0x1F // Verified: 0x1F (not 0x0D)
+)
+
+// Color command subtypes (second byte after CMD_COLOR).
+const (
+	COLOR_SUBTYPE_SINGLE byte = 0x01
+	COLOR_SUBTYPE_SPEED  byte = 0x02
+	COLOR_SUBTYPE_MODE   byte = 0x03
 )
 
 // Command types (Layer 1 BLE packet frame).
@@ -47,6 +55,7 @@ const (
 	RESPONSE_TYPE_FLIP            byte = 0x0C
 	RESPONSE_TYPE_PASSWORD_VERIFY byte = 0x0D
 	RESPONSE_TYPE_PASSWORD_SET    byte = 0x0E
+	RESPONSE_TYPE_COLOR           byte = 0x13
 	RESPONSE_TYPE_DEVICE_INFO     byte = 0x1F
 )
 

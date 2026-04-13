@@ -53,6 +53,36 @@ func BuildChannelCommand(channel uint8) []byte {
 	return buildControlCommand(CMD_CHANNEL, []byte{channel})
 }
 
+// BuildColorCommand builds a framed single-color control command (0x13 / 0x01).
+// The 8-bit RGB triple is converted to RGB444 using the device's piecewise
+// transfer function and packed into two bytes as [0x0R, 0xGB].
+//
+// Matches the CoolLED 1248 Android app's setColor(color) call; observed on
+// real hardware to change the global color used to tint monochrome content.
+func BuildColorCommand(r, g, b uint8) []byte {
+	r4 := rgb444Transfer(r)
+	g4 := rgb444Transfer(g)
+	b4 := rgb444Transfer(b)
+	return buildControlCommand(CMD_COLOR, []byte{
+		COLOR_SUBTYPE_SINGLE,
+		r4,
+		(g4 << 4) | b4,
+	})
+}
+
+// rgb444Transfer is the device's piecewise 8-bit to 4-bit color mapping.
+// Duplicated here to avoid a dependency on the image package from protocol.
+// Source: TextEmojiManagerCoolLEDUX.rgb444Transfer in the APK decompilation.
+func rgb444Transfer(v uint8) uint8 {
+	if v >= 238 {
+		return 15
+	}
+	if v <= 47 {
+		return 0
+	}
+	return uint8((int(v)-47)/14 + 1)
+}
+
 // BuildPasswordCommand builds a framed password verify or set command.
 // verify=true uses CMD_CHECK_PASSWORD (0x0D), verify=false uses CMD_SET_PASSWORD (0x0E).
 func BuildPasswordCommand(password string, verify bool) []byte {

@@ -31,5 +31,9 @@ config.yaml
 # Reference APK and decompiled source (third-party, not for distribution)
 references/
 
+# Bitmap font extracted from the CoolLED 1248 APK. See internal/text/fonts/README.md
+# for extraction instructions. Not checked in due to third-party origin.
+internal/text/fonts/*.bin
+
 # Local-only Claude instructions
 CLAUDE.local.md

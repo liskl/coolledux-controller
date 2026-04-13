@@ -57,6 +57,22 @@ type TextRequest struct {
 	Color    string `json:"color"`     // "#FF0000" hex format
 	FontSize int    `json:"font_size"`
 	StayTime uint8  `json:"stay_time"`
+	Font     string `json:"font"` // registered font name; empty = default
+}
+
+// FontInfoResponse describes a single available font.
+type FontInfoResponse struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	AdvancePx   int    `json:"advance_px"`
+	LinePx      int    `json:"line_px"`
+	Monospace   bool   `json:"monospace"`
+}
+
+// FontsResponse is the list payload for GET /fonts.
+type FontsResponse struct {
+	Default string             `json:"default"`
+	Fonts   []FontInfoResponse `json:"fonts"`
 }
 
 // ImageRequest displays a static image on the LED matrix.
@@ -71,6 +87,11 @@ type ImageRequest struct {
 type GIFRequest struct {
 	GIFBase64     string `json:"gif_base64"`
 	FrameDuration uint16 `json:"frame_duration"`
+}
+
+// ColorRequest sets the device's global tint color.
+type ColorRequest struct {
+	Color string `json:"color"` // "#RRGGBB" hex format
 }
 
 // --- Response types ---
@@ -90,7 +111,12 @@ type HealthResponse struct {
 }
 
 // parseColor converts a hex color string ("#RRGGBB" or "RRGGBB") to a uint32.
+// An empty string returns (0, nil) so callers can treat "unset" as "keep
+// whatever color is currently applied on the device".
 func parseColor(hex string) (uint32, error) {
+	if hex == "" {
+		return 0, nil
+	}
 	hex = strings.TrimPrefix(hex, "#")
 	if len(hex) != 6 {
 		return 0, fmt.Errorf("invalid color format %q: expected 6 hex digits", hex)

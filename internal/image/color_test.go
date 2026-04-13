@@ -12,15 +12,16 @@ func TestRGB444Transfer(t *testing.T) {
 		want  uint8
 	}{
 		{"zero", 0, 0},
-		{"at_low_boundary", 30, 0},
-		{"just_above_low", 31, 1},
+		{"at_low_boundary", 47, 0},
+		{"just_above_low", 48, 1},
 		{"mid_range_237", 237, 14},
 		{"at_high_boundary", 238, 15},
 		{"max_255", 255, 15},
-		// Spot checks within the linear region
-		{"value_45", 45, 2},
-		{"value_60", 60, 3},
-		{"value_120", 120, 7},
+		// Spot checks within the linear region: (v-47)/14 + 1
+		{"value_61", 61, 2},    // (61-47)/14 + 1  = 1 + 1 = 2
+		{"value_75", 75, 3},    // (75-47)/14 + 1  = 2 + 1 = 3
+		{"value_100", 100, 4},  // (100-47)/14 + 1 = 3 + 1 = 4
+		{"value_200", 200, 11}, // (200-47)/14 + 1 = 10 + 1 = 11
 	}
 
 	for _, tt := range tests {
@@ -65,10 +66,10 @@ func TestEncodePixelRGB444(t *testing.T) {
 			want: [2]byte{0x00, 0x0F},
 		},
 		{
-			// RGB(200,100,50): R=12, G=5, B=2 -> [0x0C, 0x52]
+			// RGB(200,100,50) via APK transfer: R=11, G=4, B=1 -> [0x0B, 0x41]
 			name: "example_from_spec",
 			r: 200, g: 100, b: 50,
-			want: [2]byte{0x0C, 0x52},
+			want: [2]byte{0x0B, 0x41},
 		},
 	}
 

@@ -60,6 +60,8 @@ func NewServer(ctrl *controller.Controller, cfg *config.Config, logger *slog.Log
 	app.Post("/display/text", h.DisplayText)
 	app.Post("/display/image", h.DisplayImage)
 	app.Post("/display/gif", h.DisplayGIF)
+	app.Post("/display/color", h.SetColor)
+	app.Get("/fonts", h.ListFonts)
 
 	return &Server{
 		app:    app,

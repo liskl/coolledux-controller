@@ -142,7 +142,7 @@ Docker: multi-stage build (golang:1.23-alpine -> alpine:3.20 with bluez+dbus). R
 
 1. **Stream framing for everything.** All packets use `[0x01][len_BE][escaped][0x03]`. The `[0x52,0x52]` BLE header is NOT used. Verified on real hardware.
 
-2. **Command codes differ from SDK docs.** BRIGHTNESS=0x04 (not 0x06), FLIP=0x0C (not 0x07), CHANNEL=0x07 (SDK calls this "flip").
+2. **Command codes differ from SDK docs.** BRIGHTNESS=0x04 (not 0x06), MIRROR/ROTATE=0x0C (the APK builders `getSetMirror` and `setRotate` both write `0x0C`). Program start is `0x02` (3-arg) or `0x1A` (simple); there is no `0x07` or `0x08` command builder in the APK.
 
 3. **layer_type MUST be 1** in all program content structures. Using 0 causes silent failure (device ACKs but shows default text).
 
@@ -150,7 +150,7 @@ Docker: multi-stage build (golang:1.23-alpine -> alpine:3.20 with bluez+dbus). R
 
 5. **CRC32 uses 32 iterations per byte**, polynomial 0x4C11DB7, no final XOR. Output little-endian for control commands, big-endian in program start metadata.
 
-6. **RGB444 transfer is piecewise**: `>=238->15, <=30->0, else (value-30)/15+1`. Not a bit shift.
+6. **RGB444 transfer is piecewise**: `>=238->15, <=47->0, else (value-47)/14+1`. Not a bit shift. (Source: `TextEmojiManagerCoolLEDUX.java:396`.)
 
 7. **Column-major pixel ordering.** Outer loop columns, inner loop rows. Index = `row * width + col`.
 

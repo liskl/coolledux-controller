@@ -97,7 +97,7 @@ func (h *CommandHandler) HandleTextCommand(payload []byte) error {
 	}
 
 	ctx := context.Background()
-	if err := h.ctrl.DisplayText(ctx, cmd.Text, mode, cmd.Speed, 0, cmd.FontSize, color); err != nil {
+	if err := h.ctrl.DisplayText(ctx, cmd.Text, mode, cmd.Speed, 0, cmd.FontSize, color, cmd.Font); err != nil {
 		return fmt.Errorf("displaying text: %w", err)
 	}
 

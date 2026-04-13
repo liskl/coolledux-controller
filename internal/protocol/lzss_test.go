@@ -40,6 +40,26 @@ func TestCompressDecompress_RoundTrip(t *testing.T) {
 				return d
 			}(),
 		},
+		{
+			// Regression: a self-referential match (matchLen > distance) used
+			// to corrupt the first byte past the repeating region by exactly
+			// one byte. Surfaced on the matrix as a phantom pixel one column
+			// over from a single-column vertical line.
+			name: "alternating run then zeros (self-ref match)",
+			data: append(
+				bytes.Repeat([]byte{0x00, 0x0F}, 16),
+				bytes.Repeat([]byte{0x00}, 64)...,
+			),
+		},
+		{
+			// 96x16 image with a single blue column encoded column-major as
+			// RGB444 pairs: 32 bytes of 00 0F followed by 3040 zeros.
+			name: "96x16 column0 blue line",
+			data: append(
+				bytes.Repeat([]byte{0x00, 0x0F}, 16),
+				bytes.Repeat([]byte{0x00}, 3040)...,
+			),
+		},
 	}
 
 	for _, tt := range tests {

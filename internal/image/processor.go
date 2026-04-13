@@ -21,7 +21,13 @@ func ResizeToFit(img image.Image, width, height int) *image.NRGBA {
 }
 
 // ResizeExact scales img to exactly width x height, ignoring aspect ratio.
+// Uses nearest-neighbor on identity resizes to avoid Lanczos ringing that
+// corrupts pure-color pixels into off-channel values on 1:1 passes.
 func ResizeExact(img image.Image, width, height int) *image.NRGBA {
+	bounds := img.Bounds()
+	if bounds.Dx() == width && bounds.Dy() == height {
+		return imaging.Clone(img)
+	}
 	return imaging.Resize(img, width, height, imaging.Lanczos)
 }
 

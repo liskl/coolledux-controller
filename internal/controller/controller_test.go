@@ -15,6 +15,7 @@ import (
 
 	"github.com/liskl/coolledux-controller/internal/ble"
 	"github.com/liskl/coolledux-controller/internal/config"
+	ledimage "github.com/liskl/coolledux-controller/internal/image"
 	"github.com/liskl/coolledux-controller/internal/models"
 	"github.com/liskl/coolledux-controller/internal/protocol"
 )
@@ -687,7 +688,7 @@ func TestResetDevice_Stub(t *testing.T) {
 func TestDisplayImage_NotConnected(t *testing.T) {
 	ctrl := testController()
 	pngBytes := makeSmallPNG()
-	err := ctrl.DisplayImage(context.Background(), pngBytes, models.TextShowModeStatic, 5, 0)
+	err := ctrl.DisplayImage(context.Background(), pngBytes, models.TextShowModeStatic, 5, 0, ledimage.FitLetterbox)
 	if err == nil {
 		t.Fatal("expected error from DisplayImage when not connected")
 	}
@@ -695,7 +696,7 @@ func TestDisplayImage_NotConnected(t *testing.T) {
 
 func TestDisplayImage_InvalidImage(t *testing.T) {
 	ctrl := testController()
-	err := ctrl.DisplayImage(context.Background(), []byte("not an image"), models.TextShowModeStatic, 5, 0)
+	err := ctrl.DisplayImage(context.Background(), []byte("not an image"), models.TextShowModeStatic, 5, 0, ledimage.FitLetterbox)
 	if err == nil {
 		t.Fatal("expected error for invalid image data")
 	}
@@ -704,7 +705,7 @@ func TestDisplayImage_InvalidImage(t *testing.T) {
 func TestDisplayGIF_NotConnected(t *testing.T) {
 	ctrl := testController()
 	gifBytes := makeSmallGIF()
-	err := ctrl.DisplayGIF(context.Background(), gifBytes, 100)
+	err := ctrl.DisplayGIF(context.Background(), gifBytes, 100, ledimage.FitLetterbox)
 	if err == nil {
 		t.Fatal("expected error from DisplayGIF when not connected")
 	}
@@ -712,7 +713,7 @@ func TestDisplayGIF_NotConnected(t *testing.T) {
 
 func TestDisplayGIF_InvalidGIF(t *testing.T) {
 	ctrl := testController()
-	err := ctrl.DisplayGIF(context.Background(), []byte("not a gif"), 100)
+	err := ctrl.DisplayGIF(context.Background(), []byte("not a gif"), 100, ledimage.FitLetterbox)
 	if err == nil {
 		t.Fatal("expected error for invalid GIF data")
 	}
@@ -1063,7 +1064,7 @@ func TestDisplayImage_Connected(t *testing.T) {
 		}
 	}()
 
-	err := ctrl.DisplayImage(context.Background(), pngBytes, models.TextShowModeStatic, 5, 0)
+	err := ctrl.DisplayImage(context.Background(), pngBytes, models.TextShowModeStatic, 5, 0, ledimage.FitLetterbox)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1082,7 +1083,7 @@ func TestDisplayGIF_Connected(t *testing.T) {
 		}
 	}()
 
-	err := ctrl.DisplayGIF(context.Background(), gifBytes, 100)
+	err := ctrl.DisplayGIF(context.Background(), gifBytes, 100, ledimage.FitLetterbox)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

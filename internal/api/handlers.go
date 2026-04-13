@@ -8,6 +8,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/liskl/coolledux-controller/internal/controller"
+	ledimage "github.com/liskl/coolledux-controller/internal/image"
 	"github.com/liskl/coolledux-controller/internal/models"
 	"github.com/liskl/coolledux-controller/internal/protocol"
 	"github.com/liskl/coolledux-controller/internal/text"
@@ -338,7 +339,15 @@ func (h *Handlers) DisplayImage(c *fiber.Ctx) error {
 		})
 	}
 
-	if err := h.ctrl.DisplayImage(c.Context(), imgData, mode, req.Speed, req.StayTime); err != nil {
+	fit, err := ledimage.ParseFitMode(req.Fit)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+	}
+
+	if err := h.ctrl.DisplayImage(c.Context(), imgData, mode, req.Speed, req.StayTime, fit); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -365,7 +374,15 @@ func (h *Handlers) DisplayGIF(c *fiber.Ctx) error {
 		})
 	}
 
-	if err := h.ctrl.DisplayGIF(c.Context(), gifData, req.FrameDuration); err != nil {
+	fit, err := ledimage.ParseFitMode(req.Fit)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+	}
+
+	if err := h.ctrl.DisplayGIF(c.Context(), gifData, req.FrameDuration, fit); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),

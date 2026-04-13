@@ -88,6 +88,7 @@ type TextCommand struct {
 // ImageCommand is the JSON received on the image set topic.
 type ImageCommand struct {
 	ImageBase64 string `json:"image_base64"`
+	Fit         string `json:"fit"`
 	Mode        string `json:"mode"`
 }
 
@@ -95,4 +96,5 @@ type ImageCommand struct {
 type GIFCommand struct {
 	GIFBase64     string `json:"gif_base64"`
 	FrameDuration uint16 `json:"frame_duration"`
+	Fit           string `json:"fit"`
 }

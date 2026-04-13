@@ -227,8 +227,9 @@ func (c *Controller) ResetDevice(_ context.Context) error {
 
 // DisplayImage decodes an image from raw bytes, resizes it to the display
 // dimensions, encodes it as column-major RGB444, wraps it in a graffiti
-// program, and uploads it to the device.
-func (c *Controller) DisplayImage(ctx context.Context, imgData []byte, mode models.TextShowMode, speed, stayTime uint8) error {
+// program, and uploads it to the device. fit chooses how the image is mapped
+// onto the matrix (letterbox preserves aspect with black bars).
+func (c *Controller) DisplayImage(ctx context.Context, imgData []byte, mode models.TextShowMode, speed, stayTime uint8, fit ledimage.FitMode) error {
 	img, err := ledimage.DecodeImage(imgData)
 	if err != nil {
 		return fmt.Errorf("decoding image: %w", err)
@@ -237,7 +238,7 @@ func (c *Controller) DisplayImage(ctx context.Context, imgData []byte, mode mode
 	width := c.cfg.Display.Columns
 	height := c.cfg.Display.Rows
 
-	resized := ledimage.ResizeExact(img, width, height)
+	resized := ledimage.ResizeForMatrix(img, width, height, fit)
 	pixels := ledimage.ImageToRGBA(resized)
 	encoded := ledimage.EncodeImageColumnMajor(pixels, width, height)
 
@@ -253,8 +254,9 @@ func (c *Controller) DisplayImage(ctx context.Context, imgData []byte, mode mode
 
 // DisplayGIF decodes a GIF, extracts and resizes each frame, encodes them
 // as column-major RGB444, wraps them in an animation program, and uploads
-// the result to the device.
-func (c *Controller) DisplayGIF(ctx context.Context, gifData []byte, frameDuration uint16) error {
+// the result to the device. fit chooses how each frame is mapped onto the
+// matrix (letterbox preserves aspect with black bars).
+func (c *Controller) DisplayGIF(ctx context.Context, gifData []byte, frameDuration uint16, fit ledimage.FitMode) error {
 	g, err := ledimage.DecodeGIF(gifData)
 	if err != nil {
 		return fmt.Errorf("decoding gif: %w", err)
@@ -263,7 +265,7 @@ func (c *Controller) DisplayGIF(ctx context.Context, gifData []byte, frameDurati
 	width := c.cfg.Display.Columns
 	height := c.cfg.Display.Rows
 
-	frames, delays := ledimage.ExtractFrames(g, width, height)
+	frames, delays := ledimage.ExtractFrames(g, width, height, fit)
 	if len(frames) == 0 {
 		return fmt.Errorf("gif has no frames")
 	}

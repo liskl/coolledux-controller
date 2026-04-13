@@ -67,20 +67,30 @@ Modes 14+ were probed during development and either silently render nothing or f
   "image_base64": "<base64-encoded PNG/JPEG/BMP>",
   "mode": "static",
   "speed": 1,
-  "stay_time": 0
+  "stay_time": 0,
+  "fit": "letterbox"
 }
 ```
 
 Verified working end-to-end: base64 PNG -> decode -> resize to 96x16 -> RGB444 -> LZSS -> BLE upload -> device displays image.
+
+`fit` is optional and selects how non-96x16 sources map onto the matrix:
+
+- `letterbox` (default) -- preserve aspect ratio, center on a black 96x16 canvas with bars on the empty axis.
+- `stretch` -- ignore aspect ratio, scale to exactly 96x16 (legacy behavior).
+- `cover` -- preserve aspect ratio, scale to fill the matrix, crop overflow from the center.
 
 ### POST /display/gif
 
 ```json
 {
   "gif_base64": "<base64-encoded GIF>",
-  "frame_duration": 100
+  "frame_duration": 100,
+  "fit": "letterbox"
 }
 ```
+
+`fit` accepts the same values as `/display/image`.
 
 ### POST /display/color
 

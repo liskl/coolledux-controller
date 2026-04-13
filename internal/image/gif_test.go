@@ -157,7 +157,7 @@ func TestExtractFrames(t *testing.T) {
 				t.Fatalf("decoding test GIF: %v", err)
 			}
 
-			frames, delays := ExtractFrames(g, tt.targetW, tt.targetH)
+			frames, delays := ExtractFrames(g, tt.targetW, tt.targetH, FitStretch)
 
 			if len(frames) != tt.numFrames {
 				t.Fatalf("expected %d frames, got %d", tt.numFrames, len(frames))
@@ -186,7 +186,7 @@ func TestExtractFrames(t *testing.T) {
 
 func TestExtractFrames_EmptyGIF(t *testing.T) {
 	g := &gif.GIF{}
-	frames, delays := ExtractFrames(g, 96, 16)
+	frames, delays := ExtractFrames(g, 96, 16, FitStretch)
 	if frames != nil {
 		t.Errorf("expected nil frames, got %d", len(frames))
 	}
@@ -216,7 +216,7 @@ func TestExtractFrames_DisposalBackground(t *testing.T) {
 	g.Delay = append(g.Delay, 10)
 	g.Disposal = append(g.Disposal, gif.DisposalNone)
 
-	frames, delays := ExtractFrames(g, 4, 4)
+	frames, delays := ExtractFrames(g, 4, 4, FitStretch)
 	if len(frames) != 2 {
 		t.Fatalf("expected 2 frames, got %d", len(frames))
 	}
@@ -247,7 +247,7 @@ func TestExtractFrames_NoConfigDimensions(t *testing.T) {
 	g.Delay = append(g.Delay, 5)
 	g.Disposal = append(g.Disposal, gif.DisposalNone)
 
-	frames, delays := ExtractFrames(g, 4, 4)
+	frames, delays := ExtractFrames(g, 4, 4, FitStretch)
 	if len(frames) != 1 {
 		t.Fatalf("expected 1 frame, got %d", len(frames))
 	}

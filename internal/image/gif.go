@@ -21,7 +21,8 @@ func DecodeGIF(data []byte) (*gif.GIF, error) {
 // ExtractFrames extracts each frame from a GIF as resized RGBA pixel slices.
 // Each frame is composited onto a canvas to handle disposal methods correctly.
 // Delays are returned in milliseconds (GIF stores them in centiseconds).
-func ExtractFrames(g *gif.GIF, width, height int) (frames [][]color.RGBA, delays []uint16) {
+// fit selects how each frame is mapped to the target dimensions.
+func ExtractFrames(g *gif.GIF, width, height int, fit FitMode) (frames [][]color.RGBA, delays []uint16) {
 	if len(g.Image) == 0 {
 		return nil, nil
 	}
@@ -45,7 +46,7 @@ func ExtractFrames(g *gif.GIF, width, height int) (frames [][]color.RGBA, delays
 		draw.Draw(canvas, frame.Bounds(), frame, frame.Bounds().Min, draw.Over)
 
 		// Resize the composited canvas to the target dimensions
-		resized := ResizeExact(canvas, width, height)
+		resized := ResizeForMatrix(canvas, width, height, fit)
 		pixels := ImageToRGBA(resized)
 		frames = append(frames, pixels)
 

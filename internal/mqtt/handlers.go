@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/liskl/coolledux-controller/internal/controller"
+	ledimage "github.com/liskl/coolledux-controller/internal/image"
 	"github.com/liskl/coolledux-controller/internal/models"
 )
 
@@ -122,8 +123,13 @@ func (h *CommandHandler) HandleImageCommand(payload []byte) error {
 		return fmt.Errorf("parsing image mode: %w", err)
 	}
 
+	fit, err := ledimage.ParseFitMode(cmd.Fit)
+	if err != nil {
+		return fmt.Errorf("parsing image fit: %w", err)
+	}
+
 	ctx := context.Background()
-	if err := h.ctrl.DisplayImage(ctx, imgData, mode, 5, 0); err != nil {
+	if err := h.ctrl.DisplayImage(ctx, imgData, mode, 5, 0, fit); err != nil {
 		return fmt.Errorf("displaying image: %w", err)
 	}
 
@@ -143,8 +149,13 @@ func (h *CommandHandler) HandleGIFCommand(payload []byte) error {
 		return fmt.Errorf("decoding gif base64: %w", err)
 	}
 
+	fit, err := ledimage.ParseFitMode(cmd.Fit)
+	if err != nil {
+		return fmt.Errorf("parsing gif fit: %w", err)
+	}
+
 	ctx := context.Background()
-	if err := h.ctrl.DisplayGIF(ctx, gifData, cmd.FrameDuration); err != nil {
+	if err := h.ctrl.DisplayGIF(ctx, gifData, cmd.FrameDuration, fit); err != nil {
 		return fmt.Errorf("displaying gif: %w", err)
 	}
 

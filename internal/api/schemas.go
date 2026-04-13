@@ -81,12 +81,14 @@ type ImageRequest struct {
 	Mode        string `json:"mode"`
 	Speed       uint8  `json:"speed"`
 	StayTime    uint8  `json:"stay_time"`
+	Fit         string `json:"fit"` // "letterbox" (default), "stretch", "cover"
 }
 
 // GIFRequest displays an animated GIF on the LED matrix.
 type GIFRequest struct {
 	GIFBase64     string `json:"gif_base64"`
 	FrameDuration uint16 `json:"frame_duration"`
+	Fit           string `json:"fit"` // "letterbox" (default), "stretch", "cover"
 }
 
 // ColorRequest sets the device's global tint color.

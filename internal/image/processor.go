@@ -31,6 +31,64 @@ func ResizeExact(img image.Image, width, height int) *image.NRGBA {
 	return imaging.Resize(img, width, height, imaging.Lanczos)
 }
 
+// Letterbox preserves the source aspect ratio: it resizes to fit fully within
+// width x height, then centers the result on a black canvas of that size.
+// Empty regions (the "bars") are pure black so they read as off pixels on
+// the matrix.
+func Letterbox(img image.Image, width, height int) *image.NRGBA {
+	fitted := imaging.Fit(img, width, height, imaging.Lanczos)
+	canvas := imaging.New(width, height, color.NRGBA{0, 0, 0, 255})
+	x := (width - fitted.Bounds().Dx()) / 2
+	y := (height - fitted.Bounds().Dy()) / 2
+	return imaging.Paste(canvas, fitted, image.Pt(x, y))
+}
+
+// Cover preserves the source aspect ratio while filling width x height,
+// cropping the overflow from the center.
+func Cover(img image.Image, width, height int) *image.NRGBA {
+	return imaging.Fill(img, width, height, imaging.Center, imaging.Lanczos)
+}
+
+// FitMode selects how source images are mapped to the matrix dimensions.
+type FitMode int
+
+const (
+	// FitLetterbox preserves aspect ratio with black bars (default).
+	FitLetterbox FitMode = iota
+	// FitStretch ignores aspect ratio (matches the historic ResizeExact).
+	FitStretch
+	// FitCover preserves aspect ratio and crops overflow from the center.
+	FitCover
+)
+
+// ParseFitMode parses a fit-mode string; empty selects the default
+// (FitLetterbox). Recognised values: "letterbox", "stretch", "cover".
+func ParseFitMode(s string) (FitMode, error) {
+	switch s {
+	case "", "letterbox":
+		return FitLetterbox, nil
+	case "stretch":
+		return FitStretch, nil
+	case "cover":
+		return FitCover, nil
+	default:
+		return 0, fmt.Errorf("unknown fit mode %q (want letterbox|stretch|cover)", s)
+	}
+}
+
+// ResizeForMatrix applies the chosen fit mode and returns an NRGBA image of
+// exactly width x height suitable for column-major encoding.
+func ResizeForMatrix(img image.Image, width, height int, fit FitMode) *image.NRGBA {
+	switch fit {
+	case FitStretch:
+		return ResizeExact(img, width, height)
+	case FitCover:
+		return Cover(img, width, height)
+	default:
+		return Letterbox(img, width, height)
+	}
+}
+
 // Rotate rotates img by the given angle in degrees. Only 0, 90, 180, and 270
 // are supported.
 func Rotate(img image.Image, angle int) *image.NRGBA {

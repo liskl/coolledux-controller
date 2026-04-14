@@ -3,7 +3,7 @@
 A standalone Go service that drives a **CoolLEDUX 16x96 full-color RGB LED matrix** (JT_HW358.02, sold under E-CrossStu / CoolLEDUX) over Bluetooth Low Energy. It exposes a REST API for direct control and integrates with Home Assistant via MQTT auto-discovery.
 
 - **Module:** `github.com/liskl/coolledux-controller`
-- **Minimum Go:** 1.23
+- **Minimum Go:** 1.25.5
 - **Platform:** Linux (BlueZ); Docker-friendly
 - **Reference:** Python SDK `NunoMiguelVeloso/coolledux-controller` (has incorrect command codes for this firmware; the APK decompile is the source of truth)
 

@@ -5,7 +5,7 @@ A standalone Go service that controls a CoolLEDUX 16x96 full-color RGB LED matri
 **Target hardware:** JT_HW358.02 16x96 LED matrix (E-CrossStu / CoolLEDUX)
 **Reference implementation:** Python SDK at `NunoMiguelVeloso/coolledux-controller` on GitHub
 **Go module:** `github.com/liskl/coolledux-controller`
-**Minimum Go version:** 1.23
+**Minimum Go version:** 1.25.5
 
 ## Protocol Specs
 
@@ -154,7 +154,7 @@ go build -o coolledux-controller ./cmd/coolledux-controller
 go test ./...
 ```
 
-Docker: multi-stage build (golang:1.23-alpine -> alpine:3.20 with bluez+dbus). Requires `network_mode: host` and `privileged: true` for BLE. The image build must also see the extracted assets, so run `extract-assets.sh` on the host before `docker compose build`.
+Docker: multi-stage build (golang:1.25-alpine -> alpine:3.20 with bluez+dbus). Requires `network_mode: host` and `privileged: true` for BLE. The image build must also see the extracted assets, so run `extract-assets.sh` on the host before `docker compose build`.
 
 ### Dev utilities
 

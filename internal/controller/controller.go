@@ -497,6 +497,15 @@ func (c *Controller) IsConnected() bool {
 	return c.state == StateConnected
 }
 
+// OverrideStateForTest forces the controller's state flag. Only for test use:
+// callers that want to exercise code paths gated on IsConnected without running
+// a real BLE connection.
+func (c *Controller) OverrideStateForTest(state DeviceState) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.state = state
+}
+
 // sendProgram compresses the program payload with LZSS, builds the start
 // packet, sends it and waits for an ack, then sends each data chunk and
 // waits for an ack after each one.

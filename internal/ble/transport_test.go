@@ -150,6 +150,22 @@ func TestWaitForResponse_DataAvailable(t *testing.T) {
 	}
 }
 
+func TestInjectResponseForTest(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	tr := NewTransport(NewClient(logger), logger)
+
+	expected := []byte{0xDE, 0xAD, 0xBE, 0xEF}
+	tr.InjectResponseForTest(expected)
+
+	resp, err := tr.WaitForResponse(context.Background(), 200*time.Millisecond)
+	if err != nil {
+		t.Fatalf("WaitForResponse after inject: %v", err)
+	}
+	if !bytes.Equal(resp, expected) {
+		t.Errorf("injected response mismatch: got %v, want %v", resp, expected)
+	}
+}
+
 func TestNewTransport_NotificationHandler(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	client := NewClient(logger)

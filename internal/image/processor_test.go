@@ -334,6 +334,112 @@ func TestDecodeImage(t *testing.T) {
 	}
 }
 
+func TestLetterbox(t *testing.T) {
+	tests := []struct {
+		name       string
+		srcW, srcH int
+		tgtW, tgtH int
+		ink        color.RGBA
+	}{
+		{"wide source gets horizontal bars zero", 96, 8, 96, 16, color.RGBA{R: 255, A: 255}},
+		{"tall source gets vertical bars", 8, 16, 96, 16, color.RGBA{G: 255, A: 255}},
+		{"square source in landscape target", 16, 16, 96, 16, color.RGBA{B: 255, A: 255}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := newTestImage(tt.srcW, tt.srcH, tt.ink)
+			out := Letterbox(src, tt.tgtW, tt.tgtH)
+
+			if out.Bounds().Dx() != tt.tgtW || out.Bounds().Dy() != tt.tgtH {
+				t.Fatalf("expected %dx%d, got %dx%d", tt.tgtW, tt.tgtH, out.Bounds().Dx(), out.Bounds().Dy())
+			}
+
+			// Corner pixels should be black (the bars).
+			corner := out.NRGBAAt(0, 0)
+			if corner.R != 0 || corner.G != 0 || corner.B != 0 {
+				t.Errorf("expected black bar at (0,0), got RGBA(%d,%d,%d,%d)", corner.R, corner.G, corner.B, corner.A)
+			}
+
+			// Center pixel should carry the source ink.
+			center := out.NRGBAAt(tt.tgtW/2, tt.tgtH/2)
+			if center.R == 0 && center.G == 0 && center.B == 0 {
+				t.Errorf("expected inked pixel at center, got black")
+			}
+		})
+	}
+}
+
+func TestCover(t *testing.T) {
+	// Source is taller-than-wide; Cover should fill the landscape target
+	// entirely (no black bars) and crop the overflow from the center.
+	src := newTestImage(16, 64, color.RGBA{R: 200, G: 50, B: 100, A: 255})
+	out := Cover(src, 96, 16)
+
+	if out.Bounds().Dx() != 96 || out.Bounds().Dy() != 16 {
+		t.Fatalf("expected 96x16, got %dx%d", out.Bounds().Dx(), out.Bounds().Dy())
+	}
+
+	// Every pixel should be inked (no letterboxing).
+	for _, p := range []image.Point{{0, 0}, {95, 0}, {0, 15}, {95, 15}, {48, 8}} {
+		c := out.NRGBAAt(p.X, p.Y)
+		if c.R == 0 && c.G == 0 && c.B == 0 {
+			t.Errorf("Cover left black pixel at %v; expected full coverage", p)
+		}
+	}
+}
+
+func TestParseFitMode(t *testing.T) {
+	tests := []struct {
+		in      string
+		want    FitMode
+		wantErr bool
+	}{
+		{"", FitLetterbox, false},
+		{"letterbox", FitLetterbox, false},
+		{"stretch", FitStretch, false},
+		{"cover", FitCover, false},
+		{"Letterbox", 0, true}, // case-sensitive
+		{"fill", 0, true},
+		{"bogus", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			got, err := ParseFitMode(tt.in)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for %q, got nil", tt.in)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("ParseFitMode(%q)=%v, want %v", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResizeForMatrix(t *testing.T) {
+	src := newTestImage(32, 32, color.RGBA{R: 255, G: 0, B: 0, A: 255})
+
+	for _, fit := range []FitMode{FitLetterbox, FitStretch, FitCover} {
+		out := ResizeForMatrix(src, 96, 16, fit)
+		if out.Bounds().Dx() != 96 || out.Bounds().Dy() != 16 {
+			t.Errorf("fit=%v: expected 96x16, got %dx%d", fit, out.Bounds().Dx(), out.Bounds().Dy())
+		}
+	}
+
+	// Default branch: an unknown FitMode value falls through to Letterbox.
+	out := ResizeForMatrix(src, 96, 16, FitMode(99))
+	if out.Bounds().Dx() != 96 || out.Bounds().Dy() != 16 {
+		t.Errorf("unknown fit: expected 96x16, got %dx%d", out.Bounds().Dx(), out.Bounds().Dy())
+	}
+}
+
 func TestDecodeImage_RoundTrip(t *testing.T) {
 	// Encode a known image, decode it, and verify pixel content.
 	original := newTestImage(4, 4, color.RGBA{R: 200, G: 100, B: 50, A: 255})

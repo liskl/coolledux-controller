@@ -195,6 +195,71 @@ func TestDisconnect_FakeConnected(t *testing.T) {
 	}
 }
 
+func TestConnect_AlreadyConnected(t *testing.T) {
+	c := NewClient(slog.Default())
+	c.OverrideConnectedForTest(true)
+	defer c.OverrideConnectedForTest(false)
+
+	err := c.Connect(context.Background(), "01:00:00:FB:A4:16")
+	if err == nil {
+		t.Fatal("expected 'already connected' error")
+	}
+	if err.Error() != "already connected" {
+		t.Errorf("got %v, want 'already connected'", err)
+	}
+}
+
+func TestConnect_InvalidMAC(t *testing.T) {
+	c := NewClient(slog.Default())
+
+	// Use a short-deadline context so we don't wait on the adapter enable path
+	// for too long. ParseMAC happens after Enable(); the test's main goal is
+	// exercising the MAC-parse failure branch.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err := c.Connect(ctx, "not-a-mac-address")
+	if err == nil {
+		t.Fatal("expected error from invalid MAC")
+	}
+	// Error could be from Enable() (no adapter) or from ParseMAC depending on
+	// host state. Either is fine; the code path executed through Connect.
+	if err.Error() == "already connected" {
+		t.Errorf("unexpected 'already connected': %v", err)
+	}
+}
+
+func TestOverrideSendFuncForTest(t *testing.T) {
+	c := NewClient(slog.Default())
+	c.OverrideConnectedForTest(true)
+	defer c.OverrideConnectedForTest(false)
+
+	var gotData []byte
+	c.OverrideSendFuncForTest(func(_ context.Context, data []byte) error {
+		gotData = append([]byte(nil), data...)
+		return nil
+	})
+
+	payload := []byte{0xAA, 0xBB, 0xCC}
+	if err := c.Send(context.Background(), payload); err != nil {
+		t.Fatalf("Send with override: %v", err)
+	}
+	if len(gotData) != len(payload) || gotData[0] != 0xAA || gotData[2] != 0xCC {
+		t.Errorf("override did not receive the original payload, got %v", gotData)
+	}
+
+	// Clearing the override restores real-send behaviour. Without a real
+	// characteristic, the next Send will panic — we only verify the nil-
+	// assignment path executes.
+	c.OverrideSendFuncForTest(nil)
+	c.mu.Lock()
+	cleared := c.sendOverride == nil
+	c.mu.Unlock()
+	if !cleared {
+		t.Error("OverrideSendFuncForTest(nil) should clear the override")
+	}
+}
+
 func TestSend_FakeConnected_LargePayload(t *testing.T) {
 	c := NewClient(slog.Default())
 	c.OverrideConnectedForTest(true)

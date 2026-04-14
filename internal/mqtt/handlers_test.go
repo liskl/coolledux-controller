@@ -1,6 +1,7 @@
 package mqtt
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -11,7 +12,33 @@ import (
 	"github.com/liskl/coolledux-controller/internal/ble"
 	"github.com/liskl/coolledux-controller/internal/config"
 	"github.com/liskl/coolledux-controller/internal/controller"
+	"github.com/liskl/coolledux-controller/internal/protocol"
 )
+
+// connectedHandler returns a CommandHandler wired to a controller whose BLE
+// client is "connected" via the test overrides. Writes are accepted silently;
+// callers are responsible for injecting the expected response frames.
+func connectedHandler() (*CommandHandler, *ble.Transport, *ble.Client) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	bleClient := ble.NewClient(logger)
+	transport := ble.NewTransport(bleClient, logger)
+	cfg := &config.Config{
+		BLE:     config.BLEConfig{DeviceMAC: "01:00:00:FB:A4:16"},
+		Display: config.DisplayConfig{Columns: 96, Rows: 16},
+	}
+	ctrl := controller.New(bleClient, transport, cfg, logger)
+
+	bleClient.OverrideConnectedForTest(true)
+	bleClient.OverrideSendFuncForTest(func(_ context.Context, _ []byte) error {
+		return nil
+	})
+
+	return NewCommandHandler(ctrl, logger), transport, bleClient
+}
+
+func fakeMQTTResponse(respType byte) []byte {
+	return protocol.BuildStreamFrame([]byte{respType, protocol.STATUS_SUCCESS})
+}
 
 // testHandler returns a CommandHandler backed by a real (but disconnected)
 // controller. Commands that hit the BLE transport will fail with "not connected"
@@ -344,6 +371,20 @@ func TestHandleImageCommand_InvalidMode(t *testing.T) {
 	}
 }
 
+func TestHandleImageCommand_InvalidFit(t *testing.T) {
+	h := NewCommandHandler(nil, slog.Default())
+
+	imgB64 := base64.StdEncoding.EncodeToString([]byte("x"))
+	payload := `{"image_base64":"` + imgB64 + `","mode":"static","fit":"bogus"}`
+	err := h.HandleImageCommand([]byte(payload))
+	if err == nil {
+		t.Fatal("expected error for invalid fit")
+	}
+	if !strings.Contains(err.Error(), "parsing image fit") {
+		t.Errorf("expected fit error, got: %v", err)
+	}
+}
+
 func TestHandleImageCommand_ValidBase64_NilController(t *testing.T) {
 	h := NewCommandHandler(nil, slog.Default())
 
@@ -386,6 +427,20 @@ func TestHandleGIFCommand_InvalidBase64(t *testing.T) {
 	}
 }
 
+func TestHandleGIFCommand_InvalidFit(t *testing.T) {
+	h := NewCommandHandler(nil, slog.Default())
+
+	gifB64 := base64.StdEncoding.EncodeToString([]byte("x"))
+	payload := `{"gif_base64":"` + gifB64 + `","frame_duration":50,"fit":"bogus"}`
+	err := h.HandleGIFCommand([]byte(payload))
+	if err == nil {
+		t.Fatal("expected error for invalid fit")
+	}
+	if !strings.Contains(err.Error(), "parsing gif fit") {
+		t.Errorf("expected fit error, got: %v", err)
+	}
+}
+
 func TestHandleGIFCommand_ValidBase64_NilController(t *testing.T) {
 	h := NewCommandHandler(nil, slog.Default())
 
@@ -400,6 +455,84 @@ func TestHandleGIFCommand_ValidBase64_NilController(t *testing.T) {
 	// will fail to decode as a valid GIF inside the controller.
 	if strings.Contains(err.Error(), "parsing gif command") || strings.Contains(err.Error(), "decoding gif base64") {
 		t.Errorf("error should be past parse/base64 stages, got: %v", err)
+	}
+}
+
+func TestHandleLightCommand_PowerON_Connected(t *testing.T) {
+	h, transport, client := connectedHandler()
+	defer client.OverrideConnectedForTest(false)
+
+	go func() { transport.InjectResponseForTest(fakeMQTTResponse(protocol.RESPONSE_TYPE_POWER)) }()
+
+	if err := h.HandleLightCommand([]byte(`{"state":"ON"}`)); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var s LightState
+	if err := json.Unmarshal(h.GetCurrentState(), &s); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if s.State != "ON" {
+		t.Errorf("state should be ON after power-on, got %q", s.State)
+	}
+}
+
+func TestHandleLightCommand_PowerOFF_Connected(t *testing.T) {
+	h, transport, client := connectedHandler()
+	defer client.OverrideConnectedForTest(false)
+
+	go func() { transport.InjectResponseForTest(fakeMQTTResponse(protocol.RESPONSE_TYPE_POWER)) }()
+
+	if err := h.HandleLightCommand([]byte(`{"state":"off"}`)); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var s LightState
+	if err := json.Unmarshal(h.GetCurrentState(), &s); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if s.State != "OFF" {
+		t.Errorf("state should be OFF after power-off, got %q", s.State)
+	}
+}
+
+func TestHandleLightCommand_Brightness_Connected(t *testing.T) {
+	h, transport, client := connectedHandler()
+	defer client.OverrideConnectedForTest(false)
+
+	go func() { transport.InjectResponseForTest(fakeMQTTResponse(protocol.RESPONSE_TYPE_BRIGHTNESS)) }()
+
+	payload := []byte(`{"brightness":42}`)
+	if err := h.HandleLightCommand(payload); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var s LightState
+	if err := json.Unmarshal(h.GetCurrentState(), &s); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if s.Brightness != 42 {
+		t.Errorf("brightness should be 42, got %d", s.Brightness)
+	}
+}
+
+func TestHandleTextCommand_Success_Connected(t *testing.T) {
+	h, transport, client := connectedHandler()
+	defer client.OverrideConnectedForTest(false)
+
+	// DisplayText uploads a program: RESPONSE_TYPE_PROGRAM_START then one or
+	// more RESPONSE_TYPE_PROGRAM_DATA. Inject extras; spare responses are
+	// harmless (channel buffer holds up to 16).
+	go func() {
+		transport.InjectResponseForTest(fakeMQTTResponse(protocol.RESPONSE_TYPE_PROGRAM_START))
+		for range 10 {
+			transport.InjectResponseForTest(fakeMQTTResponse(protocol.RESPONSE_TYPE_PROGRAM_DATA))
+		}
+	}()
+
+	payload := `{"text":"hi","mode":"static","speed":5,"color":"#FF0000","font_size":16}`
+	if err := h.HandleTextCommand([]byte(payload)); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

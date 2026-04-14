@@ -146,8 +146,8 @@ Action-based overlays. Action-specific fields are optional.
 
 ```json
 // POST /stopwatch
-{"action": "start"}
-// actions: "reset", "start", "stop", "status"
+{"action": "show", "color": "#00FF00"}
+// actions: "show" (upload program + reset + start), "reset", "start", "stop", "status"
 ```
 
 ```json
@@ -157,6 +157,8 @@ Action-based overlays. Action-specific fields are optional.
 ```
 
 For `/countdown`, `action: "show"` uploads a composite program (content type `0x03` animation + content type `0x0a` time-count) and starts the firmware timer via `0x0F`. The animation block is the APK's pre-baked 18-frame purple frame + hourglass (`ic_countdown_bg_animation_1696.gif`). The time-count block carries the APK's 140-byte digit bitmap (14 bytes/digit, 7 cols × 2 bytes, MSB=row 0) for clean 7×10 hollow digits matching the APK's visual output.
+
+For `/stopwatch`, `action: "show"` is the sibling path: same composite program shape and identical time-count layout on 16x96, but the animation block uses the APK's stopwatch background (`ic_stopwatch_bg_animation_1696.gif`) and the firmware is driven by the `0x10` command family (reset `0x10 02`, start/stop `0x10 03 01/00`, status `0x10 01`). The display always counts upward from `00:00:00`.
 
 ### GET /device/timer
 

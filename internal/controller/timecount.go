@@ -17,23 +17,43 @@ import (
 //go:embed assets/countdown_bg_1696.gif
 var countdownBackgroundGIF []byte
 
+// stopwatchBackgroundGIF is the APK's pre-baked 96x16 stopwatch background
+// animation, the stopwatch sibling of countdownBackgroundGIF. Extracted from
+// res/drawable-xxhdpi-v4/ic_stopwatch_bg_animation_1696.gif.
+//
+//go:embed assets/stopwatch_bg_1696.gif
+var stopwatchBackgroundGIF []byte
+
 // buildCountdownBackgroundContent decodes the embedded background gif and
 // returns the animation content block (content type 0x03, no program wrapper)
 // suitable for composition with the time-count content.
 func buildCountdownBackgroundContent() ([]byte, error) {
+	return buildOverlayBackgroundContent(countdownBackgroundGIF, "countdown")
+}
+
+// buildStopwatchBackgroundContent is the stopwatch counterpart of
+// buildCountdownBackgroundContent.
+func buildStopwatchBackgroundContent() ([]byte, error) {
+	return buildOverlayBackgroundContent(stopwatchBackgroundGIF, "stopwatch")
+}
+
+// buildOverlayBackgroundContent decodes a 96x16 overlay background gif into
+// a content-type-0x03 animation block (no program wrapper). label is used
+// only for error messages.
+func buildOverlayBackgroundContent(gif []byte, label string) ([]byte, error) {
 	const (
-		w          = 96
-		h          = 16
-		startCol   = 0
-		startRow   = 0
+		w        = 96
+		h        = 16
+		startCol = 0
+		startRow = 0
 	)
-	g, err := ledimage.DecodeGIF(countdownBackgroundGIF)
+	g, err := ledimage.DecodeGIF(gif)
 	if err != nil {
-		return nil, fmt.Errorf("decoding countdown background: %w", err)
+		return nil, fmt.Errorf("decoding %s background: %w", label, err)
 	}
 	frames, delays := ledimage.ExtractFrames(g, w, h, ledimage.FitStretch)
 	if len(frames) == 0 {
-		return nil, fmt.Errorf("countdown background has no frames")
+		return nil, fmt.Errorf("%s background has no frames", label)
 	}
 	encoded := make([][]byte, 0, len(frames))
 	for _, frame := range frames {
@@ -115,7 +135,7 @@ func rgb444PackBitShift(rgb uint32) (byte, byte) {
 // fall back to uploading the time-count alone — still functional, just
 // without the purple frame + hourglass.
 func buildTimeCountProgram96x16(c uint32) []byte {
-	timeContent := buildTimeCountContent96x16With(c, timeCountDigits96x16)
+	timeContent := buildTimeCountContent96x16With(c, timeCountDigits96x16, timeCountModeCountDown)
 	bgContent, err := buildCountdownBackgroundContent()
 	if err != nil {
 		// Fallback: time-count only.
@@ -130,22 +150,46 @@ func buildTimeCountProgram96x16(c uint32) []byte {
 // this path does NOT include the background animation — probes need clean
 // output with just digits + separators.
 func buildTimeCountProgram96x16With(c uint32, digitBitmap []byte) []byte {
-	return wrapProgram(buildTimeCountContent96x16With(c, digitBitmap))
+	return wrapProgram(buildTimeCountContent96x16With(c, digitBitmap, timeCountModeCountDown))
 }
+
+// buildStopwatchProgram96x16 is the stopwatch sibling of buildTimeCountProgram96x16.
+// The APK uses the same 16x96 time-count layout (hour/minute/second columns,
+// digit bitmap, colon separators) for both overlays; only the background
+// animation differs. The firmware drives the display via the 0x10 command
+// family (status 0x01, reset 0x02, start/stop 0x03), independent of 0x0F.
+func buildStopwatchProgram96x16(c uint32) []byte {
+	timeContent := buildTimeCountContent96x16With(c, timeCountDigits96x16, timeCountModeCountUp)
+	bgContent, err := buildStopwatchBackgroundContent()
+	if err != nil {
+		return wrapProgram(timeContent)
+	}
+	return wrapCompositeProgram(bgContent, timeContent)
+}
+
+// Time-count mode values per DeviceManager.CoolleduxTimeCountProgramContent
+// (APK DeviceManager.java:2047). Countdown activities explicitly set
+// timeCountMode=0; stopwatch activities leave the default, which is 1.
+const (
+	timeCountModeCountDown = 0
+	timeCountModeCountUp   = 1
+)
 
 // buildTimeCountContent96x16With produces just the time-count content block
 // (content type 0x0a) without a program wrapper, so it can be composed with
-// other content blocks in a multi-content program.
-func buildTimeCountContent96x16With(c uint32, digitBitmap []byte) []byte {
+// other content blocks in a multi-content program. mode selects countdown
+// (timeCountModeCountDown) or stopwatch (timeCountModeCountUp) behaviour —
+// the firmware uses this byte to decide whether to decrement or increment
+// the HH:MM:SS counter.
+func buildTimeCountContent96x16With(c uint32, digitBitmap []byte, mode byte) []byte {
 	r4, gb := rgb444PackBitShift(c)
 	colorBytes := []byte{r4, gb}
 
 	// Per APK DiscoverCountdownActivity.getProgramData for ROW=16 COL>=96.
 	const (
-		layerType     = 0x01
-		timeCountMode = 0
-		numHeight     = 10
-		numWidth      = 7
+		layerType      = 0x01
+		numHeight      = 10
+		numWidth       = 7
 		hourStartCol   = 11
 		spaceHourCol   = 26
 		minuteStartCol = 30
@@ -181,7 +225,7 @@ func buildTimeCountContent96x16With(c uint32, digitBitmap []byte) []byte {
 	off += 7 // 7 zero padding bytes
 	content[off] = layerType
 	off++
-	content[off] = timeCountMode
+	content[off] = mode
 	off++
 	off = w(content, off, numHeight)
 	off = w(content, off, numWidth)

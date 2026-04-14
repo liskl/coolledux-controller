@@ -12,3 +12,6 @@ Run `scripts/extract-assets.sh` to populate this directory. It requires
 - `countdown_bg_1696.gif` — 96x16, 18-frame purple frame + hourglass animation.
   Source: `res/drawable-xxhdpi-v4/ic_countdown_bg_animation_1696.gif` in the
   APK. Used as the animation layer of the composite countdown program.
+- `stopwatch_bg_1696.gif` — 96x16 stopwatch background animation.
+  Source: `res/drawable-xxhdpi-v4/ic_stopwatch_bg_animation_1696.gif` in the
+  APK. Used as the animation layer of the composite stopwatch program.

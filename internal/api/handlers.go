@@ -379,9 +379,21 @@ func (h *Handlers) Stopwatch(c *fiber.Ctx) error {
 		err = h.ctrl.StopwatchStartStop(c.Context(), true)
 	case "stop":
 		err = h.ctrl.StopwatchStartStop(c.Context(), false)
+	case "show":
+		color := uint32(0xFFFFFF)
+		if req.Color != "" {
+			parsed, perr := parseColor(req.Color)
+			if perr != nil {
+				return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+					Success: false, Error: perr.Error(),
+				})
+			}
+			color = parsed
+		}
+		err = h.ctrl.StopwatchDisplay(c.Context(), color)
 	default:
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
-			Success: false, Error: `action must be one of "status", "reset", "start", "stop"`,
+			Success: false, Error: `action must be one of "status", "reset", "start", "stop", "show"`,
 		})
 	}
 	if err != nil {

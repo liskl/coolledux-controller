@@ -297,6 +297,24 @@ func (c *Controller) StopwatchStartStop(ctx context.Context, start bool) error {
 	return c.sendControl(ctx, protocol.BuildStopwatchStartStopCommand(start))
 }
 
+// StopwatchDisplay uploads the composite stopwatch program (frame animation
+// + time-count digits) and then issues reset + start so the matrix shows the
+// APK-style overlay ticking upward from 00:00:00. color is the RGB tint for
+// the HH:MM:SS digits (the background animation keeps its baked-in colors).
+func (c *Controller) StopwatchDisplay(ctx context.Context, color uint32) error {
+	if !c.IsConnected() {
+		return fmt.Errorf("device not connected")
+	}
+	payload := buildStopwatchProgram96x16(color)
+	if err := c.sendProgram(ctx, payload); err != nil {
+		return fmt.Errorf("uploading stopwatch program: %w", err)
+	}
+	if err := c.StopwatchReset(ctx); err != nil {
+		return err
+	}
+	return c.StopwatchStartStop(ctx, true)
+}
+
 // --- Scoreboard overlay ---
 //
 // Scoreboard packets are ACKed but produce no visible output on the 16x96

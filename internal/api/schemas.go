@@ -71,7 +71,8 @@ type CountdownRequest struct {
 
 // StopwatchRequest controls the device's stopwatch overlay.
 type StopwatchRequest struct {
-	Action string `json:"action"` // "reset", "start", "stop", "status"
+	Action string `json:"action"` // "show", "reset", "start", "stop", "status"
+	Color  string `json:"color"`  // optional "#RRGGBB" tint for the digits (show only)
 }
 
 // ScoreboardRequest controls the device's scoreboard overlay.

@@ -4,6 +4,10 @@
 *.exe
 *.test
 
+# Runtime logs
+service.log
+nohup.out
+
 # Debug/test tool sources (not part of the service)
 cmd/bletest/
 cmd/crctest/

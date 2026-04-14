@@ -422,6 +422,46 @@ func TestStopwatch_Disconnected(t *testing.T) {
 	}
 }
 
+func TestStopwatch_ShowInvalidColor(t *testing.T) {
+	srv := testServer(t)
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/stopwatch",
+		`{"action":"show","color":"notacolor"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestStopwatch_Show_Connected(t *testing.T) {
+	rig := newTestRig(t)
+	go func() {
+		rig.transport.InjectResponseForTest(fakeOK(protocol.RESPONSE_TYPE_PROGRAM_START))
+		for i := 0; i < 40; i++ {
+			rig.transport.InjectResponseForTest(fakeOK(protocol.RESPONSE_TYPE_PROGRAM_DATA))
+		}
+	}()
+
+	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/stopwatch",
+		`{"action":"show","color":"#00FF00"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
+}
+
+func TestStopwatch_Show_DefaultColor_Connected(t *testing.T) {
+	rig := newTestRig(t)
+	go func() {
+		rig.transport.InjectResponseForTest(fakeOK(protocol.RESPONSE_TYPE_PROGRAM_START))
+		for i := 0; i < 40; i++ {
+			rig.transport.InjectResponseForTest(fakeOK(protocol.RESPONSE_TYPE_PROGRAM_DATA))
+		}
+	}()
+	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/stopwatch",
+		`{"action":"show"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
+}
+
 // ---------- Scoreboard ----------
 
 func TestScoreboard_InvalidBody(t *testing.T) {

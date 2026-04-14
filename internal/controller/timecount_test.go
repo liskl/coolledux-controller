@@ -78,7 +78,7 @@ func TestBuildTimeCountContent96x16With_Structure(t *testing.T) {
 	}
 	const color uint32 = 0xFF8800
 
-	content := buildTimeCountContent96x16With(color, digits)
+	content := buildTimeCountContent96x16With(color, digits, timeCountModeCountDown)
 
 	// totalLen field must match actual length.
 	totalLen := binary.BigEndian.Uint32(content[0:4])
@@ -678,6 +678,123 @@ func TestCountdownProbe_Connected(t *testing.T) {
 	}()
 
 	if err := ctrl.CountdownProbe(context.Background(), probe, 0x112233); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// ---------- Stopwatch (mirrors countdown) ----------
+
+func TestBuildStopwatchBackgroundContent(t *testing.T) {
+	content, err := buildStopwatchBackgroundContent()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(content) < 24 {
+		t.Fatalf("content too short: %d bytes", len(content))
+	}
+
+	totalLen := binary.BigEndian.Uint32(content[0:4])
+	if int(totalLen) != len(content) {
+		t.Errorf("totalLen field = %d, actual len = %d", totalLen, len(content))
+	}
+	if content[4] != 0x03 {
+		t.Errorf("content type = %#x, want 0x03 (animation)", content[4])
+	}
+	if content[12] != 0x01 {
+		t.Errorf("layerType = %#x, want 0x01", content[12])
+	}
+
+	frameCount := binary.BigEndian.Uint16(content[22:24])
+	if frameCount == 0 {
+		t.Error("frameCount is 0, want > 0")
+	}
+}
+
+func TestBuildStopwatchProgram96x16_Composite(t *testing.T) {
+	payload := buildStopwatchProgram96x16(0xFFFFFF)
+
+	if len(payload) < 10 {
+		t.Fatalf("payload too short: %d", len(payload))
+	}
+	for i := 0; i < 8; i++ {
+		if payload[i] != 0x00 {
+			t.Errorf("wrapper[%d] = %#x, want 0x00", i, payload[i])
+		}
+	}
+	if payload[8] != 0x02 {
+		t.Errorf("contentCount = %d, want 2 (bg + timecount)", payload[8])
+	}
+
+	if payload[10+4] != 0x03 {
+		t.Errorf("first content type = %#x, want 0x03 (animation)", payload[10+4])
+	}
+
+	firstLen := binary.BigEndian.Uint32(payload[10:14])
+	secondOff := 10 + int(firstLen)
+	if secondOff+5 > len(payload) {
+		t.Fatalf("truncated composite: secondOff=%d, len=%d", secondOff, len(payload))
+	}
+	if payload[secondOff+4] != 0x0a {
+		t.Errorf("second content type = %#x, want 0x0a (timecount)", payload[secondOff+4])
+	}
+}
+
+func TestBuildTimeCountContent_ModeByteDistinguishesOverlays(t *testing.T) {
+	// Byte offset 13 of the time-count content block is timeCountMode.
+	// Countdown uses 0, stopwatch uses 1 (APK default). Getting this wrong
+	// was the reason the stopwatch digits stayed frozen at 00:00:00 on real
+	// hardware even though 0x10 03 01 was being delivered correctly.
+	digits := timeCountDigits96x16
+	const modeOffset = 13
+
+	countdown := buildTimeCountContent96x16With(0xFFFFFF, digits, timeCountModeCountDown)
+	if countdown[modeOffset] != 0 {
+		t.Errorf("countdown mode byte = %#x, want 0", countdown[modeOffset])
+	}
+
+	stopwatch := buildTimeCountContent96x16With(0xFFFFFF, digits, timeCountModeCountUp)
+	if stopwatch[modeOffset] != 1 {
+		t.Errorf("stopwatch mode byte = %#x, want 1", stopwatch[modeOffset])
+	}
+}
+
+func TestBuildStopwatchProgram96x16_SharesTimeCountContent(t *testing.T) {
+	// The APK uses an identical time-count layout for both overlays on 16x96,
+	// differing only in the timeCountMode byte (0=countdown, 1=stopwatch).
+	// The timecount half of the stopwatch program must byte-equal the
+	// standalone stopwatch time-count content for the same color.
+	sw := buildStopwatchProgram96x16(0x00FF00)
+	timeCount := buildTimeCountContent96x16With(0x00FF00, timeCountDigits96x16, timeCountModeCountUp)
+
+	firstLen := binary.BigEndian.Uint32(sw[10:14])
+	secondOff := 10 + int(firstLen)
+	got := sw[secondOff:]
+	if !bytes.Equal(got, timeCount) {
+		t.Errorf("stopwatch timecount block diverges from expected count-up layout")
+	}
+}
+
+func TestStopwatchDisplay_NotConnected(t *testing.T) {
+	ctrl := testController()
+	if err := ctrl.StopwatchDisplay(context.Background(), 0xFFFFFF); err == nil {
+		t.Fatal("expected error when not connected")
+	}
+}
+
+func TestStopwatchDisplay_Connected(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+	markConnected(ctrl)
+
+	// StopwatchDisplay: sendProgram + StopwatchReset + StopwatchStartStop(true).
+	go func() {
+		transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_PROGRAM_START))
+		for i := 0; i < 40; i++ {
+			transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_PROGRAM_DATA))
+		}
+	}()
+
+	if err := ctrl.StopwatchDisplay(context.Background(), 0x00FF00); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

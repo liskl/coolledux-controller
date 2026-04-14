@@ -43,10 +43,3 @@ func TrimRight(glyph []byte) []byte {
 	return glyph[:end]
 }
 
-// GlyphColumns returns the trimmed column count for a rune, i.e. the number
-// of non-empty columns in its bitmap. Useful for building width metadata that
-// matches the device's embedded font spacing.
-func GlyphColumns(r rune) int {
-	g := append([]byte{}, Glyph(r)...)
-	return len(TrimRight(g)) / BytesPerColumn
-}

@@ -63,6 +63,12 @@ func NewServer(ctrl *controller.Controller, cfg *config.Config, logger *slog.Log
 	app.Post("/display/color", h.SetColor)
 	app.Get("/fonts", h.ListFonts)
 
+	// Overlays
+	app.Post("/countdown", h.Countdown)
+	app.Post("/stopwatch", h.Stopwatch)
+	app.Post("/scoreboard", h.Scoreboard)
+	app.Post("/debug/timecount", h.CountdownProbeHandler)
+
 	return &Server{
 		app:    app,
 		cfg:    cfg,

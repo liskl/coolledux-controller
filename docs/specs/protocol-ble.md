@@ -199,7 +199,31 @@ Other content types follow the same `[totalLen:4][typeByte][7 zero bytes][layerT
 | `0x04` frame | `getDataWithFrameProgramContent` | `:3304` |
 | `0x05` text auto-color | `getDataWithTextAutoColorProgramContent` | `:3655` |
 | `0x06` text custom-color | `getDataWithTextCustomColorProgramContent` | `:3920` |
+| `0x0A` time-count overlay | `getDataWithTimeCountCombineProgram` | `:3946` |
 | `0x0C` raw GIF (firmware >= v30) | `getDataWithAnimationCombineProgram` (GIF overload) | `:3103` |
+
+For the countdown UI the APK uploads a **composite program** with two content blocks: a `0x03` animation (18-frame purple frame + hourglass, from `ic_countdown_bg_animation_1696.gif`) and a `0x0A` time-count overlay. The `0x0A` body is:
+
+```
+offset  size  value
+4       1     0x0A
+5       7     zero padding
+12      1     layerType (1)
+13      1     timeCountMode (0 on 16x96)
+14      2     numHeight (10)
+16      2     numWidth (7)
+18      2     digitBitmapLen (140)
+20      N     digitBitmap (10 digits × 14 bytes — 7 cols × 2 bytes per col, MSB = row 0)
+...     10    hour: color(2) + col(2) + row(2) + w(2) + h(2)
+...     10    spaceHour: color + col + row + w + h
+...     2+M   separatorLen + separator (2+4 bytes on 16x96: "51, 0, 51, 0")
+...     10    minute: same shape
+...     10    spaceMinute
+...     2+M   separatorLen + separator (reused)
+...     10    seconds
+```
+
+Device-specific bitmaps (16x32, 16x64, 16x144, 16x192, 24x*, 32x*) differ in both dimensions and byte count; see `CoolledUXUtils.smali` `getDataWithTimeCountCombineProgram` registers v4/v7/v13/v15/v17/etc. for the verbatim constants. The jadx-decompiled Java mangles the control flow; use baksmali to trace which register applies per `DEVICE_ROW`/`DEVICE_COLUMN`.
 
 ### 2. Wrap in program envelope
 

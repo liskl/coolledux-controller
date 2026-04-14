@@ -7,6 +7,8 @@
 # Debug/test tool sources (not part of the service)
 cmd/bletest/
 cmd/crctest/
+cmd/digit-dump/
+scripts/matrix-probe.py
 
 # IDE and editor
 .idea/
@@ -31,9 +33,10 @@ config.yaml
 # Reference APK and decompiled source (third-party, not for distribution)
 references/
 
-# Bitmap font extracted from the CoolLED 1248 APK. See internal/text/fonts/README.md
-# for extraction instructions. Not checked in due to third-party origin.
+# Assets extracted from the CoolLED 1248 APK. See each directory's README for
+# extraction instructions. Not checked in due to third-party origin.
 internal/text/fonts/*.bin
+internal/controller/assets/*.gif
 
 # Local-only Claude instructions
 CLAUDE.local.md

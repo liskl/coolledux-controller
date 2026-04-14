@@ -60,6 +60,31 @@ type TextRequest struct {
 	Font     string `json:"font"` // registered font name; empty = default
 }
 
+// CountdownRequest controls the device's countdown timer overlay.
+type CountdownRequest struct {
+	Action string `json:"action"`           // "show", "set", "start", "stop", "status"
+	Hour   uint8  `json:"hour,omitempty"`   // for "show"/"set" (0-23)
+	Minute uint8  `json:"minute,omitempty"` // for "show"/"set" (0-59)
+	Second uint8  `json:"second,omitempty"` // for "show"/"set" (0-59)
+	Color  string `json:"color,omitempty"`  // for "show": "#RRGGBB", default white
+}
+
+// StopwatchRequest controls the device's stopwatch overlay.
+type StopwatchRequest struct {
+	Action string `json:"action"` // "reset", "start", "stop", "status"
+}
+
+// ScoreboardRequest controls the device's scoreboard overlay.
+// Note: produces no visible output on the 16x96 firmware.
+type ScoreboardRequest struct {
+	Action  string `json:"action"`             // "set_scores", "set_time", "start", "stop", "status"
+	ScoreA  uint16 `json:"score_a,omitempty"`  // for "set_scores"
+	ScoreB  uint16 `json:"score_b,omitempty"`  // for "set_scores"
+	Hour    uint8  `json:"hour,omitempty"`     // for "set_time"
+	Minute  uint8  `json:"minute,omitempty"`   // for "set_time"
+	IsTimer bool   `json:"is_timer,omitempty"` // for "set_time"
+}
+
 // FontInfoResponse describes a single available font.
 type FontInfoResponse struct {
 	Name        string `json:"name"`

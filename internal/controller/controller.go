@@ -225,6 +225,107 @@ func (c *Controller) ResetDevice(_ context.Context) error {
 	return fmt.Errorf("reset command not verified on this device")
 }
 
+// --- Countdown timer overlay ---
+
+// CountdownStatus requests the current countdown state from the device.
+func (c *Controller) CountdownStatus(ctx context.Context) error {
+	return c.sendControl(ctx, protocol.BuildCountdownStatusCommand())
+}
+
+// CountdownSet programs the countdown duration. hour/minute/second are
+// single-byte values per the APK packet shape.
+func (c *Controller) CountdownSet(ctx context.Context, hour, minute, second uint8) error {
+	return c.sendControl(ctx, protocol.BuildCountdownSetCommand(hour, minute, second))
+}
+
+// CountdownStartStop starts (true) or stops (false) the countdown overlay.
+func (c *Controller) CountdownStartStop(ctx context.Context, start bool) error {
+	return c.sendControl(ctx, protocol.BuildCountdownStartStopCommand(start))
+}
+
+// CountdownDisplay uploads the time-count program (content type 0x0a) so
+// the device can render the countdown as bitmap digits, then sends the
+// firmware set + start commands. After this returns, the matrix should
+// display HH:MM:SS counting down. color is the RGB tint for the digits.
+func (c *Controller) CountdownDisplay(ctx context.Context, hour, minute, second uint8, color uint32) error {
+	if !c.IsConnected() {
+		return fmt.Errorf("device not connected")
+	}
+	payload := buildTimeCountProgram96x16(color)
+	if err := c.sendProgram(ctx, payload); err != nil {
+		return fmt.Errorf("uploading time-count program: %w", err)
+	}
+	if err := c.CountdownSet(ctx, hour, minute, second); err != nil {
+		return err
+	}
+	return c.CountdownStartStop(ctx, true)
+}
+
+// CountdownProbe uploads a time-count program where every digit (0-9) uses
+// the same 39-byte pattern. Used to reverse-engineer the firmware's byte→
+// pixel mapping for the digit slot. probe must be exactly 39 bytes.
+//
+// This intentionally does NOT issue the 0x0F set/start commands so the
+// response queue stays clean between rapid probes; the program alone is
+// enough to exercise the digit rendering.
+func (c *Controller) CountdownProbe(ctx context.Context, probe []byte, color uint32) error {
+	if !c.IsConnected() {
+		return fmt.Errorf("device not connected")
+	}
+	if len(probe) != 39 {
+		return fmt.Errorf("probe bitmap must be 39 bytes, got %d", len(probe))
+	}
+	digits := make([]byte, 0, 390)
+	for i := 0; i < 10; i++ {
+		digits = append(digits, probe...)
+	}
+	payload := buildTimeCountProgram96x16With(color, digits)
+	return c.sendProgram(ctx, payload)
+}
+
+// --- Stopwatch overlay ---
+
+func (c *Controller) StopwatchStatus(ctx context.Context) error {
+	return c.sendControl(ctx, protocol.BuildStopwatchStatusCommand())
+}
+
+func (c *Controller) StopwatchReset(ctx context.Context) error {
+	return c.sendControl(ctx, protocol.BuildStopwatchResetCommand())
+}
+
+func (c *Controller) StopwatchStartStop(ctx context.Context, start bool) error {
+	return c.sendControl(ctx, protocol.BuildStopwatchStartStopCommand(start))
+}
+
+// --- Scoreboard overlay ---
+//
+// Scoreboard packets are ACKed but produce no visible output on the 16x96
+// firmware. Exposed for completeness and other models.
+
+func (c *Controller) ScoreboardStatus(ctx context.Context) error {
+	return c.sendControl(ctx, protocol.BuildScoreboardStatusCommand())
+}
+
+func (c *Controller) ScoreboardSetScores(ctx context.Context, scoreA, scoreB uint16) error {
+	return c.sendControl(ctx, protocol.BuildScoreboardSetScoresCommand(scoreA, scoreB))
+}
+
+func (c *Controller) ScoreboardSetTime(ctx context.Context, hour, minute uint8, isTimer bool) error {
+	return c.sendControl(ctx, protocol.BuildScoreboardSetTimeCommand(hour, minute, isTimer))
+}
+
+func (c *Controller) ScoreboardStartStop(ctx context.Context, start bool) error {
+	return c.sendControl(ctx, protocol.BuildScoreboardStartStopCommand(start))
+}
+
+// sendControl is the shared helper for fire-and-forget control commands.
+func (c *Controller) sendControl(ctx context.Context, cmd []byte) error {
+	if !c.IsConnected() {
+		return fmt.Errorf("device not connected")
+	}
+	return c.transport.SendCommand(ctx, cmd)
+}
+
 // DisplayImage decodes an image from raw bytes, resizes it to the requested
 // region, encodes it as column-major RGB444, wraps it in a graffiti program,
 // and uploads it to the device. The region is positioned at (x, y) on the
@@ -569,6 +670,13 @@ func buildGraffitiProgram(startCol, startRow, width, height int, mode models.Tex
 //	Content: [totalLen:4 BE][0x03][0x01][0x00 x 6][layerType:1][startCol:2 BE][startRow:2 BE]
 //	         [width:2 BE][height:2 BE][0x00][frameCount:2 BE][delays:2*N BE][frameData...]
 func buildAnimationProgram(startCol, startRow, width, height int, frames [][]byte, delays []uint16) []byte {
+	return wrapProgram(buildAnimationContent(startCol, startRow, width, height, frames, delays))
+}
+
+// buildAnimationContent produces just the animation content block (without
+// the program wrapper), so it can be composed with other content blocks in
+// a multi-content program (see wrapCompositeProgram).
+func buildAnimationContent(startCol, startRow, width, height int, frames [][]byte, delays []uint16) []byte {
 	var frameDataLen int
 	for _, f := range frames {
 		frameDataLen += len(f)
@@ -578,8 +686,8 @@ func buildAnimationProgram(startCol, startRow, width, height int, frames [][]byt
 
 	content := make([]byte, contentLen)
 	binary.BigEndian.PutUint32(content[0:4], uint32(contentLen))
-	content[4] = 0x03 // animation content type
-	content[5] = 0x01 // mode/loop flag
+	content[4] = 0x03  // animation content type
+	content[5] = 0x01  // mode/loop flag
 	content[12] = 0x01 // layer type (verified: must be 1)
 	binary.BigEndian.PutUint16(content[13:15], uint16(startCol))
 	binary.BigEndian.PutUint16(content[15:17], uint16(startRow))
@@ -588,20 +696,16 @@ func buildAnimationProgram(startCol, startRow, width, height int, frames [][]byt
 	content[21] = 0x00 // reserved
 	binary.BigEndian.PutUint16(content[22:24], uint16(len(delays)))
 
-	// Write frame delays.
 	offset := 24
 	for _, d := range delays {
 		binary.BigEndian.PutUint16(content[offset:offset+2], d)
 		offset += 2
 	}
-
-	// Write concatenated frame data.
 	for _, f := range frames {
 		copy(content[offset:], f)
 		offset += len(f)
 	}
-
-	return wrapProgram(content)
+	return content
 }
 
 // buildTextProgram assembles a text program payload.
@@ -680,6 +784,28 @@ func wrapProgram(content []byte) []byte {
 	wrapper[8] = 0x01 // content count = 1
 	wrapper[9] = 0x00 // separator
 	copy(wrapper[10:], content)
+	return wrapper
+}
+
+// wrapCompositeProgram wraps multiple content blocks in one program wrapper.
+// Each content must already include its own [totalLen:4 BE][typeByte][...]
+// prefix; we just set contentCount and concatenate. Matches the APK's
+// getDataWithProgram flow (CoolledUXUtils.java:3578) used for composite UIs
+// like the countdown (animation + time-count in one program).
+func wrapCompositeProgram(contents ...[]byte) []byte {
+	total := 10
+	for _, c := range contents {
+		total += len(c)
+	}
+	wrapper := make([]byte, total)
+	// wrapper[0:8] = 8 zero bytes (reserved)
+	wrapper[8] = byte(len(contents)) // content count
+	wrapper[9] = 0x00                // separator
+	off := 10
+	for _, c := range contents {
+		copy(wrapper[off:], c)
+		off += len(c)
+	}
 	return wrapper
 }
 

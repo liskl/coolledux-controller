@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/base64"
+	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -262,6 +264,163 @@ func (h *Handlers) DisplayText(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),
+		})
+	}
+	return c.JSON(SuccessResponse{Success: true})
+}
+
+// CountdownProbeHandler accepts a 39-byte hex-encoded digit bitmap and uses
+// it for all 10 digit positions, then starts a 1-hour countdown so all six
+// digit slots display the probe pattern. Used to reverse-engineer the
+// firmware byte→pixel mapping for content-type 0x0a digit cells.
+//
+//	POST /debug/timecount { "probe_hex": "80000000...", "color": "#00FF00" }
+func (h *Handlers) CountdownProbeHandler(c *fiber.Ctx) error {
+	var req struct {
+		ProbeHex string `json:"probe_hex"`
+		Color    string `json:"color"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+			Success: false, Error: err.Error(),
+		})
+	}
+	bitmap := make([]byte, 0, 39)
+	if len(req.ProbeHex)%2 != 0 || len(req.ProbeHex) != 78 {
+		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+			Success: false, Error: "probe_hex must be 78 hex chars (39 bytes)",
+		})
+	}
+	for i := 0; i < len(req.ProbeHex); i += 2 {
+		var b byte
+		if _, err := fmt.Sscanf(req.ProbeHex[i:i+2], "%02x", &b); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+				Success: false, Error: "invalid hex at byte " + strconv.Itoa(i/2),
+			})
+		}
+		bitmap = append(bitmap, b)
+	}
+	color := uint32(0xFFFFFF)
+	if req.Color != "" {
+		parsed, perr := parseColor(req.Color)
+		if perr != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+				Success: false, Error: perr.Error(),
+			})
+		}
+		color = parsed
+	}
+	if err := h.ctrl.CountdownProbe(c.Context(), bitmap, color); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
+			Success: false, Error: err.Error(),
+		})
+	}
+	return c.JSON(SuccessResponse{Success: true})
+}
+
+// Countdown handles POST /countdown { action, hour?, minute?, second? }.
+func (h *Handlers) Countdown(c *fiber.Ctx) error {
+	var req CountdownRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+			Success: false, Error: "invalid request body: " + err.Error(),
+		})
+	}
+	var err error
+	switch strings.ToLower(req.Action) {
+	case "status":
+		err = h.ctrl.CountdownStatus(c.Context())
+	case "set":
+		err = h.ctrl.CountdownSet(c.Context(), req.Hour, req.Minute, req.Second)
+	case "start":
+		err = h.ctrl.CountdownStartStop(c.Context(), true)
+	case "stop":
+		err = h.ctrl.CountdownStartStop(c.Context(), false)
+	case "show":
+		color := uint32(0xFFFFFF)
+		if req.Color != "" {
+			parsed, perr := parseColor(req.Color)
+			if perr != nil {
+				return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+					Success: false, Error: perr.Error(),
+				})
+			}
+			color = parsed
+		}
+		err = h.ctrl.CountdownDisplay(c.Context(), req.Hour, req.Minute, req.Second, color)
+	default:
+		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+			Success: false, Error: `action must be one of "status", "set", "start", "stop", "show"`,
+		})
+	}
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
+			Success: false, Error: err.Error(),
+		})
+	}
+	return c.JSON(SuccessResponse{Success: true})
+}
+
+// Stopwatch handles POST /stopwatch { action }.
+func (h *Handlers) Stopwatch(c *fiber.Ctx) error {
+	var req StopwatchRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+			Success: false, Error: "invalid request body: " + err.Error(),
+		})
+	}
+	var err error
+	switch strings.ToLower(req.Action) {
+	case "status":
+		err = h.ctrl.StopwatchStatus(c.Context())
+	case "reset":
+		err = h.ctrl.StopwatchReset(c.Context())
+	case "start":
+		err = h.ctrl.StopwatchStartStop(c.Context(), true)
+	case "stop":
+		err = h.ctrl.StopwatchStartStop(c.Context(), false)
+	default:
+		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+			Success: false, Error: `action must be one of "status", "reset", "start", "stop"`,
+		})
+	}
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
+			Success: false, Error: err.Error(),
+		})
+	}
+	return c.JSON(SuccessResponse{Success: true})
+}
+
+// Scoreboard handles POST /scoreboard { action, ... }.
+// Note: scoreboard packets are ACKed but not visible on the 16x96 firmware.
+func (h *Handlers) Scoreboard(c *fiber.Ctx) error {
+	var req ScoreboardRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+			Success: false, Error: "invalid request body: " + err.Error(),
+		})
+	}
+	var err error
+	switch strings.ToLower(req.Action) {
+	case "status":
+		err = h.ctrl.ScoreboardStatus(c.Context())
+	case "set_scores":
+		err = h.ctrl.ScoreboardSetScores(c.Context(), req.ScoreA, req.ScoreB)
+	case "set_time":
+		err = h.ctrl.ScoreboardSetTime(c.Context(), req.Hour, req.Minute, req.IsTimer)
+	case "start":
+		err = h.ctrl.ScoreboardStartStop(c.Context(), true)
+	case "stop":
+		err = h.ctrl.ScoreboardStartStop(c.Context(), false)
+	default:
+		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+			Success: false, Error: `action must be one of "status", "set_scores", "set_time", "start", "stop"`,
+		})
+	}
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
+			Success: false, Error: err.Error(),
 		})
 	}
 	return c.JSON(SuccessResponse{Success: true})

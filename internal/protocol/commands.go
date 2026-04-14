@@ -158,3 +158,95 @@ func BuildGetTimerCommand() []byte {
 func BuildDeviceInfoCommand() []byte {
 	return BuildStreamFrame([]byte{CMD_DEVICE_INFO})
 }
+
+// --- Countdown timer overlay (CMD_COUNTDOWN, 0x0F) ---
+
+// BuildCountdownStatusCommand requests the current countdown state.
+func BuildCountdownStatusCommand() []byte {
+	return BuildStreamFrame([]byte{CMD_COUNTDOWN, COUNTDOWN_SUBTYPE_STATUS})
+}
+
+// BuildCountdownSetCommand sets the countdown duration. Each field is a
+// single byte per the APK (getCountDownReset uses getHexListStringForInt).
+func BuildCountdownSetCommand(hour, minute, second uint8) []byte {
+	return BuildStreamFrame([]byte{
+		CMD_COUNTDOWN, COUNTDOWN_SUBTYPE_SET,
+		hour, minute, second,
+	})
+}
+
+// BuildCountdownStartStopCommand starts (true) or stops (false) the countdown.
+func BuildCountdownStartStopCommand(start bool) []byte {
+	flag := byte(0x00)
+	if start {
+		flag = 0x01
+	}
+	return BuildStreamFrame([]byte{CMD_COUNTDOWN, COUNTDOWN_SUBTYPE_START_STOP, flag})
+}
+
+// --- Stopwatch overlay (CMD_STOPWATCH, 0x10) ---
+
+// BuildStopwatchStatusCommand requests the current stopwatch state.
+func BuildStopwatchStatusCommand() []byte {
+	return BuildStreamFrame([]byte{CMD_STOPWATCH, STOPWATCH_SUBTYPE_STATUS})
+}
+
+// BuildStopwatchResetCommand resets the stopwatch to 00:00:00.
+func BuildStopwatchResetCommand() []byte {
+	return BuildStreamFrame([]byte{CMD_STOPWATCH, STOPWATCH_SUBTYPE_RESET})
+}
+
+// BuildStopwatchStartStopCommand starts (true) or stops (false) the stopwatch.
+func BuildStopwatchStartStopCommand(start bool) []byte {
+	flag := byte(0x00)
+	if start {
+		flag = 0x01
+	}
+	return BuildStreamFrame([]byte{CMD_STOPWATCH, STOPWATCH_SUBTYPE_START_STOP, flag})
+}
+
+// --- Scoreboard overlay (CMD_SCOREBOARD, 0x11) ---
+//
+// NOTE: the 16x96 firmware ACKs scoreboard packets but does not produce a
+// visible scoreboard. The builders are exposed for completeness; behavior on
+// other CoolLEDUX models may differ.
+
+// BuildScoreboardStatusCommand requests the current scoreboard state.
+func BuildScoreboardStatusCommand() []byte {
+	return BuildStreamFrame([]byte{CMD_SCOREBOARD, SCOREBOARD_SUBTYPE_STATUS})
+}
+
+// BuildScoreboardSetScoresCommand sets the two team scores. Per the APK
+// (getScoreBoardSetCore) the layout is scoreA:2 BE, scoreB:2 BE, then two
+// trailing single bytes whose meaning is not clear from decompilation; this
+// builder zeros them.
+func BuildScoreboardSetScoresCommand(scoreA, scoreB uint16) []byte {
+	return BuildStreamFrame([]byte{
+		CMD_SCOREBOARD, SCOREBOARD_SUBTYPE_SET_SCORES,
+		byte(scoreA >> 8), byte(scoreA),
+		byte(scoreB >> 8), byte(scoreB),
+		0x00, 0x00,
+	})
+}
+
+// BuildScoreboardSetTimeCommand sets the scoreboard's clock (hour, minute) and
+// whether it counts up as a timer (isTimer=true) or shows wall time.
+func BuildScoreboardSetTimeCommand(hour, minute uint8, isTimer bool) []byte {
+	flag := byte(0x00)
+	if isTimer {
+		flag = 0x01
+	}
+	return BuildStreamFrame([]byte{
+		CMD_SCOREBOARD, SCOREBOARD_SUBTYPE_SET_TIME,
+		hour, minute, flag,
+	})
+}
+
+// BuildScoreboardStartStopCommand starts (true) or stops (false) the scoreboard.
+func BuildScoreboardStartStopCommand(start bool) []byte {
+	flag := byte(0x00)
+	if start {
+		flag = 0x01
+	}
+	return BuildStreamFrame([]byte{CMD_SCOREBOARD, SCOREBOARD_SUBTYPE_START_STOP, flag})
+}

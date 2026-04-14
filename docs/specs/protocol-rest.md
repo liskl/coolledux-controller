@@ -20,6 +20,10 @@ Fiber v2, default port `:8080`.
 | POST | `/display/gif` | See below | Display GIF |
 | POST | `/display/color` | `{"color":"#FF8800"}` | Set global tint color (CMD_COLOR 0x13/0x01) |
 | GET | `/fonts` | - | List available fonts for `/display/text` |
+| POST | `/countdown` | See below | Countdown timer overlay (0x0a + 0x0F) |
+| POST | `/stopwatch` | See below | Stopwatch overlay (0x10) |
+| POST | `/scoreboard` | See below | Scoreboard overlay (0x11; no-op on 16x96) |
+| POST | `/debug/timecount` | - | Experimental: raw 39-byte digit-bitmap probe |
 
 ## Request/Response Details
 
@@ -128,6 +132,38 @@ Sets the global tint color applied to text/content. Maps to BLE command `0x13` s
 ```
 
 The `name` field is what to pass in `POST /display/text`'s `font` field.
+
+### POST /countdown, /stopwatch, /scoreboard
+
+Action-based overlays. Action-specific fields are optional.
+
+```json
+// POST /countdown
+{"action": "show", "hour": 0, "minute": 1, "second": 30, "color": "#00FF00"}
+// actions: "show" (upload program + set + start), "set", "start", "stop", "status"
+```
+
+```json
+// POST /stopwatch
+{"action": "start"}
+// actions: "reset", "start", "stop", "status"
+```
+
+```json
+// POST /scoreboard     (ACKed on 16x96 hardware but not visible)
+{"action": "set_scores", "score_a": 3, "score_b": 2}
+// actions: "set_scores", "set_time", "start", "stop", "status"
+```
+
+For `/countdown`, `action: "show"` uploads a composite program (content type `0x03` animation + content type `0x0a` time-count) and starts the firmware timer via `0x0F`. The animation block is the APK's pre-baked 18-frame purple frame + hourglass (`ic_countdown_bg_animation_1696.gif`). The time-count block carries the APK's 140-byte digit bitmap (14 bytes/digit, 7 cols × 2 bytes, MSB=row 0) for clean 7×10 hollow digits matching the APK's visual output.
+
+### Debug: POST /debug/timecount
+
+Experimental. Uploads a hex-encoded bitmap in place of the APK's digit bitmap and starts the countdown, for probing the firmware's byte→pixel layout on other device sizes. Not part of the stable API; may be removed.
+
+```json
+{"probe_hex": "<hex bytes>", "color": "#00FF00"}
+```
 
 ### Success/Error Responses
 

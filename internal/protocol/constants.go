@@ -18,8 +18,27 @@ const (
 	CMD_FLIP       byte = 0x0C // Verified: 0=none, 1=horizontal, 2=vertical, 3=both (SDK says 0x07)
 	CMD_CHECK_PASSWORD byte = 0x0D // Password check with XOR encoding
 	CMD_SET_PASSWORD   byte = 0x0E // Password set with XOR encoding
+	CMD_COUNTDOWN      byte = 0x0F // Countdown timer overlay. Subtype 0x01=status, 0x02=set, 0x03=start/stop.
+	CMD_STOPWATCH      byte = 0x10 // Stopwatch overlay. Subtype 0x01=status, 0x02=reset, 0x03=start/stop.
+	CMD_SCOREBOARD     byte = 0x11 // Scoreboard overlay. Subtype 0x01=status, 0x02=set scores, 0x03=set time, 0x04=start/stop.
 	CMD_COLOR          byte = 0x13 // Global color control. Subtype 0x01=single color, 0x02=speed, 0x03=mode.
 	CMD_DEVICE_INFO    byte = 0x1F // Verified: 0x1F (not 0x0D)
+)
+
+// Subtype bytes for the overlay commands above.
+const (
+	COUNTDOWN_SUBTYPE_STATUS     byte = 0x01
+	COUNTDOWN_SUBTYPE_SET        byte = 0x02
+	COUNTDOWN_SUBTYPE_START_STOP byte = 0x03
+
+	STOPWATCH_SUBTYPE_STATUS     byte = 0x01
+	STOPWATCH_SUBTYPE_RESET      byte = 0x02
+	STOPWATCH_SUBTYPE_START_STOP byte = 0x03
+
+	SCOREBOARD_SUBTYPE_STATUS     byte = 0x01
+	SCOREBOARD_SUBTYPE_SET_SCORES byte = 0x02
+	SCOREBOARD_SUBTYPE_SET_TIME   byte = 0x03
+	SCOREBOARD_SUBTYPE_START_STOP byte = 0x04
 )
 
 // Color command subtypes (second byte after CMD_COLOR).

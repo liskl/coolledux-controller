@@ -14,6 +14,7 @@ Fiber v2, default port `:8080`.
 | POST | `/device/channel` | `{"channel":0}` | Switch program/channel slot (0-9 verified) |
 | POST | `/device/time` | `{"hour":14,"minute":30,"second":0}` | Sync time |
 | POST | `/device/timer` | `{"items":[...]}` | Set timers |
+| GET | `/device/timer` | - | Read raw timer bytes from device |
 | POST | `/device/reset` | - | Factory reset |
 | POST | `/display/text` | See below | Display text |
 | POST | `/display/image` | See below | Display image |
@@ -156,6 +157,14 @@ Action-based overlays. Action-specific fields are optional.
 ```
 
 For `/countdown`, `action: "show"` uploads a composite program (content type `0x03` animation + content type `0x0a` time-count) and starts the firmware timer via `0x0F`. The animation block is the APK's pre-baked 18-frame purple frame + hourglass (`ic_countdown_bg_animation_1696.gif`). The time-count block carries the APK's 140-byte digit bitmap (14 bytes/digit, 7 cols × 2 bytes, MSB=row 0) for clean 7×10 hollow digits matching the APK's visual output.
+
+### GET /device/timer
+
+Reads the current timer table from the device. Returns the raw device payload (base64-encoded bytes) under `data` without further parsing; callers are responsible for interpreting the byte layout (see `protocol-ble.md` for the timer format).
+
+```json
+{"success": true, "data": "<base64 bytes>"}
+```
 
 ### Debug: POST /debug/timecount
 

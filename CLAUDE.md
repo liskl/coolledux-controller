@@ -24,6 +24,8 @@ coolledux-controller/
   cmd/
     coolledux-controller/
       main.go                       # Entrypoint: config load, DI wiring, graceful shutdown
+    probe-encode/                   # LZSS round-trip bisector (dev utility)
+    text-preview/                   # Prints baseline/ink metrics for each registered font
   internal/
     ble/
       client.go                     # BLE connection manager (scan, connect, MTU, reconnect)
@@ -37,8 +39,10 @@ coolledux-controller/
       response.go                   # Parse device responses by type code
       program.go                    # Program start/data packet builders, chunk management
     controller/
-      controller.go                 # Orchestrator: state machine, program upload session
+      controller.go                 # Orchestrator: state machine, program upload, overlay commands
       state.go                      # DeviceState, ProgramSendingState enums
+      timecount.go                  # Countdown/stopwatch/scoreboard builders; APK 140-byte digit bitmap
+      assets/                       # countdown_bg_1696.gif (APK-extracted, gitignored)
     models/
       device.go                     # DeviceInfo struct
       program.go                    # GraffitiProgram, AnimationProgram, TextProgram
@@ -51,9 +55,10 @@ coolledux-controller/
       color.go                      # RGB888->RGB444 (47/14 transfer), column-major encoding
     text/
       renderer.go                   # Rasterize strings to RGB444 column-major bytes via font.Drawer
-      fonts.go                      # Font registry; Register/Face/AvailableFonts/BaselineOffset
+      fonts.go                      # Font registry; embeds spleen-8x16.bdf, 7x14B.bdf; basicfont.Face7x13
       font.go                       # Legacy 16x16 APK-extracted glyph helpers (unused by default path)
       bdf/                          # Embedded BDF files: spleen-8x16.bdf, 7x14B.bdf
+      fonts/                        # unicode_16_bold.bin (APK-extracted, gitignored)
     api/
       server.go                     # Fiber HTTP server setup, route registration
       handlers.go                   # Route handlers for all endpoints
@@ -62,15 +67,20 @@ coolledux-controller/
     mqtt/
       client.go                     # MQTT connection, publish/subscribe, LWT, reconnect
       discovery.go                  # Home Assistant MQTT auto-discovery payload builders
-      handlers.go                   # Command topic handlers (power, brightness, text, image)
+      handlers.go                   # Command topic handlers (power, brightness, text, image, gif)
       entities.go                   # Entity definitions (light, binary_sensor)
     config/
       config.go                     # Viper-based config: YAML file + env vars + defaults
+  scripts/
+    extract-assets.sh               # Pull APK assets into internal/text/fonts and internal/controller/assets
+    matrix-probe.py                 # Ad-hoc pattern drawing via REST (pixel/line/rect/poly)
   docs/specs/                       # Protocol specifications
   config.example.yaml               # Example configuration file
   Dockerfile                        # Multi-stage build
   docker-compose.yml                # Service + Mosquitto broker
 ```
+
+Every package (except `cmd/probe-encode` and `cmd/text-preview`) ships with a matching `*_test.go`. Overall coverage sits near 86% (weakest spot: `internal/ble`, which talks to real BLE hardware).
 
 ### Key Dependencies
 
@@ -95,6 +105,7 @@ ble:
   device_mac: "01:00:00:FB:A4:16"
   service_uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
   char_uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+  device_service_uuid: "9056aa8d-24a1-427e-ae91-b70e0bf992cd"
   scan_timeout: "10s"
   reconnect_interval: "5s"
 
@@ -109,6 +120,8 @@ display:
 mqtt:
   broker: "tcp://localhost:1883"
   client_id: "coolledux-controller"
+  username: ""
+  password: ""
   topic_prefix: "coolledux"
   ha_discovery_prefix: "homeassistant"
   keepalive: "30s"
@@ -128,12 +141,69 @@ Env vars override config: prefix `COOLLEDUX_`, underscores for nesting (e.g. `CO
 
 ## Build and Deployment
 
+Two assets are extracted from the CoolLED 1248 APK at build time and are *not* committed (third-party origin):
+
+- `internal/text/fonts/unicode_16_bold.bin` -- the legacy 16x16 glyph bitmap
+- `internal/controller/assets/countdown_bg_1696.gif` -- the countdown overlay background
+
+Run `scripts/extract-assets.sh` once (expects `references/coolled-1248.apk`; see `CLAUDE.local.md` for how to obtain it) before the first build. Both paths are covered by `//go:embed`, so the build fails noisily if either is missing.
+
 ```bash
+./scripts/extract-assets.sh                                     # one-time, requires the APK
 go build -o coolledux-controller ./cmd/coolledux-controller
 go test ./...
 ```
 
-Docker: multi-stage build (golang:1.23-alpine -> alpine:3.20 with bluez+dbus). Requires `network_mode: host` and `privileged: true` for BLE.
+Docker: multi-stage build (golang:1.23-alpine -> alpine:3.20 with bluez+dbus). Requires `network_mode: host` and `privileged: true` for BLE. The image build must also see the extracted assets, so run `extract-assets.sh` on the host before `docker compose build`.
+
+### Dev utilities
+
+Small helper binaries live under `cmd/`. None of them are part of the shipped service; they're for reverse-engineering and hand-testing:
+
+- `cmd/probe-encode` -- bisects LZSS round-trip bugs by finding the shortest prefix that fails.
+- `cmd/text-preview` -- prints baseline and ink metrics for every registered font.
+- `scripts/matrix-probe.py` -- draws pixel/line/rect/poly patterns on the matrix via REST.
+
+Three more dev binaries (`bletest`, `crctest`, `digit-dump`) are gitignored and only exist on developer machines.
+
+---
+
+## Running the Service
+
+Foreground (Ctrl-C for graceful shutdown, which is wired in `cmd/coolledux-controller/main.go`):
+
+```bash
+./coolledux-controller --config config.yaml
+# or from source:
+go run ./cmd/coolledux-controller --config config.yaml
+```
+
+Background with logs:
+
+```bash
+nohup ./coolledux-controller --config config.yaml > service.log 2>&1 &
+```
+
+Stop:
+
+```bash
+pkill -f '[c]oolledux-controller'      # SIGTERM, graceful
+pkill -9 -f '[c]oolledux-controller'   # SIGKILL, if BLE hangs
+```
+
+Check if it's running:
+
+```bash
+pgrep -af '[c]oolledux-controller'
+```
+
+Docker:
+
+```bash
+docker compose up -d     # starts service + Mosquitto
+docker compose down      # stops both
+docker compose logs -f coolledux-controller
+```
 
 ---
 
@@ -172,3 +242,7 @@ Docker: multi-stage build (golang:1.23-alpine -> alpine:3.20 with bluez+dbus). R
 12. **Escape applies to length bytes too.** The 2-byte big-endian length is part of the escaped region.
 
 13. **Device quirk — uniform full column produces a phantom pixel.** When 16 identical pixel values fill a complete column, the firmware lights a stray pixel at (col+1, row 0). Reproduces with LZSS disabled too, so it's not our encoder. Doesn't affect normal text rendering (glyphs rarely have 16px-tall uniform strokes).
+
+14. **Countdown uses the APK's 140-byte digit bitmap.** On 16x96, the firmware expects the v17 7x10 hollow digits (14 bytes per digit, 7 cols x 2 bytes MSB-packed), not the blocky `str2` variant used on taller panels. The bitmap and layout live in `internal/controller/timecount.go`; trust `baksmali` over `jadx` for the originating `timecount` method. Scoreboard (`0x11`) is ACKed by the firmware on this panel but not rendered — keep the endpoint for parity but don't expect visible output.
+
+15. **Two text-rendering paths coexist.** Default: BDF-driven `font.Drawer` rasterization via the registry in `internal/text/fonts.go` (Plan 9 7x13, X11 7x14B, Spleen 8x16). Legacy: the 16x16 APK glyph bitmap in `internal/text/font.go` (column-major, 2 bytes per column, MSB = row 0). The legacy path is not wired into `/display/text` by default; it's kept because the countdown builder and some probes still read from it.

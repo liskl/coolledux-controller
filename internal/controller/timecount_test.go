@@ -570,7 +570,7 @@ func TestScoreboard_Connected(t *testing.T) {
 	if err := ctrl.ScoreboardStatus(ctx); err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	if err := ctrl.ScoreboardSetScores(ctx, 5, 7); err != nil {
+	if err := ctrl.ScoreboardSetScores(ctx, 5, 7, 1, 2); err != nil {
 		t.Fatalf("setscores: %v", err)
 	}
 	if err := ctrl.ScoreboardSetTime(ctx, 12, 30, true); err != nil {
@@ -585,7 +585,7 @@ func TestScoreboard_Connected(t *testing.T) {
 	}
 	checks := [][]byte{
 		protocol.BuildScoreboardStatusCommand(),
-		protocol.BuildScoreboardSetScoresCommand(5, 7),
+		protocol.BuildScoreboardSetScoresCommand(5, 7, 1, 2),
 		protocol.BuildScoreboardSetTimeCommand(12, 30, true),
 		protocol.BuildScoreboardStartStopCommand(false),
 	}
@@ -602,7 +602,7 @@ func TestScoreboard_NotConnected(t *testing.T) {
 	if err := ctrl.ScoreboardStatus(ctx); err == nil {
 		t.Error("ScoreboardStatus: expected error")
 	}
-	if err := ctrl.ScoreboardSetScores(ctx, 1, 2); err == nil {
+	if err := ctrl.ScoreboardSetScores(ctx, 1, 2, 0, 0); err == nil {
 		t.Error("ScoreboardSetScores: expected error")
 	}
 	if err := ctrl.ScoreboardSetTime(ctx, 1, 2, false); err == nil {

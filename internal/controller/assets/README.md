@@ -15,3 +15,7 @@ Run `scripts/extract-assets.sh` to populate this directory. It requires
 - `stopwatch_bg_1696.gif` — 96x16 stopwatch background animation.
   Source: `res/drawable-xxhdpi-v4/ic_stopwatch_bg_animation_1696.gif` in the
   APK. Used as the animation layer of the composite stopwatch program.
+- `scoreboard_bg_1696.gif` — 96x16 scoreboard background (tiny, 286 bytes).
+  Source: `res/drawable-xxhdpi-v4/ic_scoreboard_bg_1696.gif` in the APK.
+  Used as the animation layer of the composite scoreboard program
+  (content type 0x0b).

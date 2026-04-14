@@ -76,14 +76,16 @@ type StopwatchRequest struct {
 }
 
 // ScoreboardRequest controls the device's scoreboard overlay.
-// Note: produces no visible output on the 16x96 firmware.
 type ScoreboardRequest struct {
-	Action  string `json:"action"`             // "set_scores", "set_time", "start", "stop", "status"
-	ScoreA  uint16 `json:"score_a,omitempty"`  // for "set_scores"
-	ScoreB  uint16 `json:"score_b,omitempty"`  // for "set_scores"
+	Action  string `json:"action"`             // "show", "set_scores", "set_time", "start", "stop", "status"
+	ScoreA  uint16 `json:"score_a,omitempty"`  // host main score (for "set_scores")
+	ScoreB  uint16 `json:"score_b,omitempty"`  // visit main score (for "set_scores")
+	TotalA  uint8  `json:"total_a,omitempty"`  // host period/set counter (for "set_scores")
+	TotalB  uint8  `json:"total_b,omitempty"`  // visit period/set counter (for "set_scores")
 	Hour    uint8  `json:"hour,omitempty"`     // for "set_time"
 	Minute  uint8  `json:"minute,omitempty"`   // for "set_time"
 	IsTimer bool   `json:"is_timer,omitempty"` // for "set_time"
+	Color   string `json:"color,omitempty"`    // for "show" — "#RRGGBB" tint applied to every digit region
 }
 
 // FontInfoResponse describes a single available font.

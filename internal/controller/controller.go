@@ -324,8 +324,11 @@ func (c *Controller) ScoreboardStatus(ctx context.Context) error {
 	return c.sendControl(ctx, protocol.BuildScoreboardStatusCommand())
 }
 
-func (c *Controller) ScoreboardSetScores(ctx context.Context, scoreA, scoreB uint16) error {
-	return c.sendControl(ctx, protocol.BuildScoreboardSetScoresCommand(scoreA, scoreB))
+// ScoreboardSetScores updates the team main scores (scoreA/scoreB) and the
+// period/set counters (totalA/totalB). The small counters are independent
+// uint8 values; pass 0 for both if you only want to set main scores.
+func (c *Controller) ScoreboardSetScores(ctx context.Context, scoreA, scoreB uint16, totalA, totalB uint8) error {
+	return c.sendControl(ctx, protocol.BuildScoreboardSetScoresCommand(scoreA, scoreB, totalA, totalB))
 }
 
 func (c *Controller) ScoreboardSetTime(ctx context.Context, hour, minute uint8, isTimer bool) error {
@@ -334,6 +337,28 @@ func (c *Controller) ScoreboardSetTime(ctx context.Context, hour, minute uint8, 
 
 func (c *Controller) ScoreboardStartStop(ctx context.Context, start bool) error {
 	return c.sendControl(ctx, protocol.BuildScoreboardStartStopCommand(start))
+}
+
+// ScoreboardDisplay uploads the APK-matched scoreboard composite program
+// (background animation + content type 0x0b with team scores, period
+// counters, and MM:SS clock) then primes the display by setting scores to
+// 0-0 and the clock to 00:00 as a countdown timer, then starts it. Color
+// tints every digit region (APK default is white).
+func (c *Controller) ScoreboardDisplay(ctx context.Context, color uint32) error {
+	if !c.IsConnected() {
+		return fmt.Errorf("device not connected")
+	}
+	payload := buildScoreboardProgram96x16(color)
+	if err := c.sendProgram(ctx, payload); err != nil {
+		return fmt.Errorf("uploading scoreboard program: %w", err)
+	}
+	if err := c.ScoreboardSetScores(ctx, 0, 0, 0, 0); err != nil {
+		return err
+	}
+	if err := c.ScoreboardSetTime(ctx, 0, 0, true); err != nil {
+		return err
+	}
+	return c.ScoreboardStartStop(ctx, true)
 }
 
 // sendControl is the shared helper for fire-and-forget control commands.

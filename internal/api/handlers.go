@@ -418,16 +418,28 @@ func (h *Handlers) Scoreboard(c *fiber.Ctx) error {
 	case "status":
 		err = h.ctrl.ScoreboardStatus(c.Context())
 	case "set_scores":
-		err = h.ctrl.ScoreboardSetScores(c.Context(), req.ScoreA, req.ScoreB)
+		err = h.ctrl.ScoreboardSetScores(c.Context(), req.ScoreA, req.ScoreB, req.TotalA, req.TotalB)
 	case "set_time":
 		err = h.ctrl.ScoreboardSetTime(c.Context(), req.Hour, req.Minute, req.IsTimer)
 	case "start":
 		err = h.ctrl.ScoreboardStartStop(c.Context(), true)
 	case "stop":
 		err = h.ctrl.ScoreboardStartStop(c.Context(), false)
+	case "show":
+		color := uint32(0xFFFFFF)
+		if req.Color != "" {
+			parsed, perr := parseColor(req.Color)
+			if perr != nil {
+				return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+					Success: false, Error: perr.Error(),
+				})
+			}
+			color = parsed
+		}
+		err = h.ctrl.ScoreboardDisplay(c.Context(), color)
 	default:
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
-			Success: false, Error: `action must be one of "status", "set_scores", "set_time", "start", "stop"`,
+			Success: false, Error: `action must be one of "status", "set_scores", "set_time", "start", "stop", "show"`,
 		})
 	}
 	if err != nil {

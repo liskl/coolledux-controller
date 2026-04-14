@@ -511,6 +511,46 @@ func TestScoreboard_Disconnected(t *testing.T) {
 	}
 }
 
+func TestScoreboard_ShowInvalidColor(t *testing.T) {
+	srv := testServer(t)
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/scoreboard",
+		`{"action":"show","color":"notacolor"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestScoreboard_Show_Connected(t *testing.T) {
+	rig := newTestRig(t)
+	go func() {
+		rig.transport.InjectResponseForTest(fakeOK(protocol.RESPONSE_TYPE_PROGRAM_START))
+		for i := 0; i < 40; i++ {
+			rig.transport.InjectResponseForTest(fakeOK(protocol.RESPONSE_TYPE_PROGRAM_DATA))
+		}
+	}()
+
+	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/scoreboard",
+		`{"action":"show","color":"#FF8800"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
+}
+
+func TestScoreboard_Show_DefaultColor_Connected(t *testing.T) {
+	rig := newTestRig(t)
+	go func() {
+		rig.transport.InjectResponseForTest(fakeOK(protocol.RESPONSE_TYPE_PROGRAM_START))
+		for i := 0; i < 40; i++ {
+			rig.transport.InjectResponseForTest(fakeOK(protocol.RESPONSE_TYPE_PROGRAM_DATA))
+		}
+	}()
+	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/scoreboard",
+		`{"action":"show"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
+}
+
 // Tiny sanity check: the Server respects the body-limit ceiling and the
 // request context threads into the controller. This test doesn't wait on BLE;
 // it cancels via a short context deadline so we exercise the ctx-cancelled

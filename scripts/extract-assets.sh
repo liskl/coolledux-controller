@@ -32,5 +32,11 @@ unzip -j -o "$APK" \
 mv "$COUNTDOWN_OUT/ic_stopwatch_bg_animation_1696.gif" \
     "$COUNTDOWN_OUT/stopwatch_bg_1696.gif"
 
+unzip -j -o "$APK" \
+    'res/drawable-xxhdpi-v4/ic_scoreboard_bg_1696.gif' \
+    -d "$COUNTDOWN_OUT"
+mv "$COUNTDOWN_OUT/ic_scoreboard_bg_1696.gif" \
+    "$COUNTDOWN_OUT/scoreboard_bg_1696.gif"
+
 echo "fonts:     $(ls "$FONTS_OUT"/*.bin 2>/dev/null || echo none)"
 echo "overlays:  $(ls "$COUNTDOWN_OUT"/*.gif 2>/dev/null || echo none)"

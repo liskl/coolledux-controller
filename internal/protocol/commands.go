@@ -216,16 +216,18 @@ func BuildScoreboardStatusCommand() []byte {
 	return BuildStreamFrame([]byte{CMD_SCOREBOARD, SCOREBOARD_SUBTYPE_STATUS})
 }
 
-// BuildScoreboardSetScoresCommand sets the two team scores. Per the APK
-// (getScoreBoardSetCore) the layout is scoreA:2 BE, scoreB:2 BE, then two
-// trailing single bytes whose meaning is not clear from decompilation; this
-// builder zeros them.
-func BuildScoreboardSetScoresCommand(scoreA, scoreB uint16) []byte {
+// BuildScoreboardSetScoresCommand sets the two team main scores and their
+// period/set counters (displayed as the small digits above each main score
+// on 16x96). Per the APK (CoolledUXUtils.getScoreBoardSetCore), the layout
+// is scoreA:2 BE, scoreB:2 BE, totalA:1, totalB:1 — i.e. main scores are
+// uint16 and period counters are uint8. DeviceManager.java:7155 confirms
+// the arg order: (hostScore, visitScore, hostTotalScore, visitTotalScore).
+func BuildScoreboardSetScoresCommand(scoreA, scoreB uint16, totalA, totalB uint8) []byte {
 	return BuildStreamFrame([]byte{
 		CMD_SCOREBOARD, SCOREBOARD_SUBTYPE_SET_SCORES,
 		byte(scoreA >> 8), byte(scoreA),
 		byte(scoreB >> 8), byte(scoreB),
-		0x00, 0x00,
+		totalA, totalB,
 	})
 }
 

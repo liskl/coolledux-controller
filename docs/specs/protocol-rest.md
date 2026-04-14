@@ -23,7 +23,7 @@ Fiber v2, default port `:8080`.
 | GET | `/fonts` | - | List available fonts for `/display/text` |
 | POST | `/countdown` | See below | Countdown timer overlay (0x0a + 0x0F) |
 | POST | `/stopwatch` | See below | Stopwatch overlay (0x10) |
-| POST | `/scoreboard` | See below | Scoreboard overlay (0x11; no-op on 16x96) |
+| POST | `/scoreboard` | See below | Scoreboard overlay (0x11; composite program with scores + clock) |
 | POST | `/debug/timecount` | - | Experimental: raw 39-byte digit-bitmap probe |
 
 ## Request/Response Details
@@ -151,14 +151,21 @@ Action-based overlays. Action-specific fields are optional.
 ```
 
 ```json
-// POST /scoreboard     (ACKed on 16x96 hardware but not visible)
-{"action": "set_scores", "score_a": 3, "score_b": 2}
-// actions: "set_scores", "set_time", "start", "stop", "status"
+// POST /scoreboard
+{"action": "show", "color": "#FFFFFF"}
+// actions: "show" (upload program + prime scores/clock + start), "set_scores", "set_time", "start", "stop", "status"
+// set_scores payload: {"action":"set_scores","score_a":12,"score_b":7,"total_a":1,"total_b":0}
+//   score_a/score_b -- host/visit main scores, uint16 (2 BE bytes on the wire)
+//   total_a/total_b -- host/visit period/set counter, uint8 (the small digits above each main score)
 ```
 
 For `/countdown`, `action: "show"` uploads a composite program (content type `0x03` animation + content type `0x0a` time-count) and starts the firmware timer via `0x0F`. The animation block is the APK's pre-baked 18-frame purple frame + hourglass (`ic_countdown_bg_animation_1696.gif`). The time-count block carries the APK's 140-byte digit bitmap (14 bytes/digit, 7 cols × 2 bytes, MSB=row 0) for clean 7×10 hollow digits matching the APK's visual output.
 
 For `/stopwatch`, `action: "show"` is the sibling path: same composite program shape and identical time-count layout on 16x96, but the animation block uses the APK's stopwatch background (`ic_stopwatch_bg_animation_1696.gif`) and the firmware is driven by the `0x10` command family (reset `0x10 02`, start/stop `0x10 03 01/00`, status `0x10 01`). The display always counts upward from `00:00:00`.
+
+For `/scoreboard`, `action: "show"` uploads a different composite: content type `0x0b` with distinct regions for host/visit team scores (3 digits each, 7×10 glyphs), a 1-digit period/set counter per team (4×5 glyphs), and an MM:SS game clock (4×5 glyphs with a 1-column colon). The animation block uses `ic_scoreboard_bg_1696.gif`. After upload the handler primes with `set_scores(0, 0, 0, 0)` and `set_time(0, 0, timer=true)` then starts the firmware via `0x11 04 01`. Subsequent `/scoreboard` calls with `set_scores` / `set_time` drive updates without re-uploading the program.
+
+Clock sequencing: `set_time` while the clock is running silently fails to latch the new value on 16x96 — the firmware only picks up a new time when the clock is stopped. To reset the clock after `show`, send `{"action":"stop"}`, then `{"action":"set_time",...}`, then `{"action":"start"}`. Main scores and period counters via `set_scores` update immediately without this dance.
 
 ### GET /device/timer
 

@@ -81,10 +81,10 @@ Every command is built by appending the command byte and payload to a list, then
 | `0x10` | Stopwatch status | `[0x01]` | `getStopwatchStatus` | 4565 | verified |
 | `0x10` | Stopwatch reset | `[0x02]` | `getStopwatchReset` | 4546 | verified |
 | `0x10` | Stopwatch start/stop | `[0x03][0x01 or 0x00]` | `getStopwatchStartOrStop` | 4553 | verified |
-| `0x11` | Scoreboard status | `[0x01]` | `getScoreBoardStatus` | 4394 | ACK only (no visual on 16x96) |
-| `0x11` | Scoreboard set scores | `[0x02][scoreA:2 BE][scoreB:2 BE]` | `getScoreBoardSetCore` | 4357 | no visual |
-| `0x11` | Scoreboard set time | `[0x03][hour:1][min:1][isTimer:1]` | `getScoreBoardSetTime` | 4368 | no visual |
-| `0x11` | Scoreboard start/stop | `[0x04][0x01 or 0x00]` | `getScoreBoardStartOrStop` | 4382 | no visual |
+| `0x11` | Scoreboard status | `[0x01]` | `getScoreBoardStatus` | 4394 | verified |
+| `0x11` | Scoreboard set scores | `[0x02][scoreA:2 BE][scoreB:2 BE][totalA:1][totalB:1]` | `getScoreBoardSetCore` | 4357 | verified |
+| `0x11` | Scoreboard set time | `[0x03][hour:1][min:1][isTimer:1]` | `getScoreBoardSetTime` | 4368 | verified |
+| `0x11` | Scoreboard start/stop | `[0x04][0x01 or 0x00]` | `getScoreBoardStartOrStop` | 4382 | verified |
 | `0x13` | Set color | `[0x01][R4:nibble][GB:byte]` (RGB444) | `setColor` | 4706 | verified |
 | `0x13` | Set color speed | `[0x02][speed:1]` | `setColorSpeed` | 4835 | untested |
 | `0x13` | Set color mode (palette) | `[0x03][modeBytes...]` — preset cycling palettes | `setColorMode` | 4714 | untested |
@@ -200,6 +200,7 @@ Other content types follow the same `[totalLen:4][typeByte][7 zero bytes][layerT
 | `0x05` text auto-color | `getDataWithTextAutoColorProgramContent` | `:3655` |
 | `0x06` text custom-color | `getDataWithTextCustomColorProgramContent` | `:3920` |
 | `0x0A` time-count overlay | `getDataWithTimeCountCombineProgram` | `:3946` |
+| `0x0B` scoreboard overlay | `getDataWithScoreBoardCombineProgram` | `:3647` (jadx fails; baksmali line 12685 of `CoolledUXUtils.smali`) |
 | `0x0C` raw GIF (firmware >= v30) | `getDataWithAnimationCombineProgram` (GIF overload) | `:3103` |
 
 For the countdown UI the APK uploads a **composite program** with two content blocks: a `0x03` animation (18-frame purple frame + hourglass, from `ic_countdown_bg_animation_1696.gif`) and a `0x0A` time-count overlay. The `0x0A` body is:
@@ -209,7 +210,7 @@ offset  size  value
 4       1     0x0A
 5       7     zero padding
 12      1     layerType (1)
-13      1     timeCountMode (0 on 16x96)
+13      1     timeCountMode — 0=count down (countdown), 1=count up (stopwatch). APK default is 1; DiscoverCountdownActivity explicitly overrides to 0. Missing this byte keeps the digits frozen.
 14      2     numHeight (10)
 16      2     numWidth (7)
 18      2     digitBitmapLen (140)
@@ -224,6 +225,43 @@ offset  size  value
 ```
 
 Device-specific bitmaps (16x32, 16x64, 16x144, 16x192, 24x*, 32x*) differ in both dimensions and byte count; see `CoolledUXUtils.smali` `getDataWithTimeCountCombineProgram` registers v4/v7/v13/v15/v17/etc. for the verbatim constants. The jadx-decompiled Java mangles the control flow; use baksmali to trace which register applies per `DEVICE_ROW`/`DEVICE_COLUMN`.
+
+#### Scoreboard overlay (`0x0B`)
+
+Built by `CoolledUXUtils.getDataWithScoreBoardCombineProgram` (smali line 12685 — jadx bails with "Code decompiled incorrectly" at 1264 instructions; baksmali is the source of truth). Driven by command family `0x11` (status / setScores / setTime / startStop). The APK's `DiscoverScoreboardActivity` uploads a composite program (animation `0x03` + scoreboard content `0x0B`).
+
+The `0x0B` body on 16x96 (`DEVICE_ROW=16 && DEVICE_COLUMN>=96` branch):
+
+```
+offset  size   value
+4       1      0x0B
+5       7      zero padding
+12      1      layerType (1)
+13      1      zero
+14      2      scoreNumHeight (10)       ← main team-score glyph height
+16      2      scoreNumWidth (7)         ← main team-score glyph width
+18      2      scoreDigitsBitmapLen (140)
+20      140    scoreDigitsBitmap          ← same 7×10 hollow digits as countdown/stopwatch (v7)
+...     2+8    hostScore color(2) + col(2) + row(2) + w(2) + h(2)  [col=14 row=4 w=21 h=10]
+...     2+8    visitScore color + pos                              [col=61 row=4 w=21 h=10]
+...     2      scoreTotalNumHeight (5)   ← small period-counter glyph height
+...     2      scoreTotalNumWidth (4)    ← small period-counter glyph width
+...     2      smallDigitsBitmapLen (40)
+...     40     smallDigitsBitmap          ← 3-col glyph + 1 spacer per digit, 1 byte per col, 5-row MSB-packed
+...     2+8    totalHost color + pos                               [col=41 row=2 w=4 h=5]
+...     2+8    totalVisit color + pos                              [col=51 row=2 w=4 h=5]
+...     2      timeNumHeight (5)         ← clock digit height (same as total)
+...     2      timeNumWidth (4)          ← clock digit width
+...     2      timeDigitsBitmapLen (40)
+...     40     timeDigitsBitmap           ← same 40-byte small-digit bitmap (reused)
+...     2+8    minute color + pos                                  [col=39 row=11 w=8 h=5]
+...     2+8    spaceMinute color + pos (colon slot)                [col=47 row=11 w=1 h=5]
+...     2      colonBitmapLen (1)
+...     1      colonBitmap                ← single byte 0x50 (dots at rows 1 & 3 of 5-row cell)
+...     2+8    seconds color + pos                                 [col=49 row=11 w=8 h=5]
+```
+
+Gotcha that burned us: `v13` in the smali is **reassigned twice** — once early (line 127) as a 220-byte candidate for score-digit selection on other panel sizes, and again at line 480 as the 40-byte small-digit bitmap. By the time the scoreTotalNum and time-digit selectors run, `v13` is the 40-byte version. Reading the first assignment and stopping there produces a program that uploads successfully but renders garbled clock/counter glyphs.
 
 ### 2. Wrap in program envelope
 

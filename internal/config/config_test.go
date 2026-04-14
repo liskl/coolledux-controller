@@ -1,7 +1,6 @@
 package config
 
 import (
-	"os"
 	"testing"
 	"time"
 )
@@ -163,8 +162,7 @@ func TestLoad_EnvOverride(t *testing.T) {
 	const overrideMAC = "AA:BB:CC:DD:EE:FF"
 
 	// Set the env var, then clean up after the test.
-	os.Setenv(envKey, overrideMAC)
-	defer os.Unsetenv(envKey)
+	t.Setenv(envKey, overrideMAC)
 
 	cfg, err := Load("")
 	if err != nil {

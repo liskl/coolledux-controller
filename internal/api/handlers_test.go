@@ -75,7 +75,7 @@ func doJSONRequest(t *testing.T, srv *Server, method, path, body string) (*http.
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	buf, _ := io.ReadAll(resp.Body)
 	return resp, buf
 }

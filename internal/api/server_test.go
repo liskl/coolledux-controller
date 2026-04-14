@@ -54,7 +54,7 @@ func TestHealthEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)
@@ -96,7 +96,7 @@ func TestHealthEndpoint_JSONContentType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	ct := resp.Header.Get("Content-Type")
 	if !strings.Contains(ct, "application/json") {
@@ -118,7 +118,7 @@ func TestSetPower_ValidOn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Returns 500 because the BLE client is disconnected. Validates that
 	// parsing succeeded and the error path is exercised.
@@ -150,7 +150,7 @@ func TestSetPower_InvalidState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -183,7 +183,7 @@ func TestSetPower_InvalidBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -204,7 +204,7 @@ func TestDisplayText_InvalidBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -225,7 +225,7 @@ func TestDisplayText_InvalidMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -246,7 +246,7 @@ func TestDisplayText_InvalidColor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -267,7 +267,7 @@ func TestDisplayImage_InvalidBase64(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -288,7 +288,7 @@ func TestDisplayGIF_InvalidBase64(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -307,7 +307,7 @@ func TestRouteNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Fiber returns 404 for unmatched routes. The custom error handler
 	// converts it to a JSON response, but status may differ. Just verify
@@ -332,7 +332,7 @@ func TestSetBrightness_InvalidBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -353,7 +353,7 @@ func TestSetFlip_InvalidBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -374,7 +374,7 @@ func TestSetFlip_InvalidMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -393,7 +393,7 @@ func TestDeviceInfo_Disconnected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", resp.StatusCode)
@@ -425,7 +425,7 @@ func TestSyncTime_InvalidBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected 500 (defaults to time.Now, fails at BLE), got %d", resp.StatusCode)
@@ -446,7 +446,7 @@ func TestSetTimers_InvalidBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -467,7 +467,7 @@ func TestDisplayImage_InvalidBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -488,7 +488,7 @@ func TestDisplayGIF_InvalidBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -510,7 +510,7 @@ func TestDisplayImage_InvalidMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -529,7 +529,7 @@ func TestResetDevice_Disconnected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", resp.StatusCode)
@@ -559,7 +559,7 @@ func TestSetBrightness_ValidBody_Disconnected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", resp.StatusCode)
@@ -589,7 +589,7 @@ func TestSetFlip_ValidBody_Disconnected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", resp.StatusCode)
@@ -619,7 +619,7 @@ func TestSyncTime_ValidBody_Disconnected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", resp.StatusCode)
@@ -649,7 +649,7 @@ func TestSetTimers_ValidBody_Disconnected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", resp.StatusCode)
@@ -679,7 +679,7 @@ func TestDisplayText_ValidBody_Disconnected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", resp.StatusCode)
@@ -710,7 +710,7 @@ func TestDisplayGIF_InvalidGIFData_Disconnected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Base64 decodes fine, but the data is not a valid GIF.
 	if resp.StatusCode != http.StatusInternalServerError {
@@ -749,7 +749,7 @@ func TestSetPower_ValidOff_Disconnected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", resp.StatusCode)
@@ -771,7 +771,7 @@ func TestDisplayImage_ValidMode_Disconnected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Parsing and base64 succeed, but controller fails (image decode or BLE send).
 	if resp.StatusCode != http.StatusInternalServerError {
@@ -797,7 +797,7 @@ func TestCORSMiddleware_MultipleOrigins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
@@ -824,7 +824,7 @@ func TestRecoveryMiddleware_PanicHandler(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Recovery middleware catches the panic and returns 500.
 	if resp.StatusCode != http.StatusInternalServerError {
@@ -858,7 +858,7 @@ func TestSetColor_ValidBody_Disconnected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Parsing succeeds; controller errors because BLE is disconnected.
 	if resp.StatusCode != http.StatusInternalServerError {
@@ -880,7 +880,7 @@ func TestSetColor_InvalidColor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -901,7 +901,7 @@ func TestSetColor_InvalidBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -926,7 +926,7 @@ func TestCORSMiddleware_EmptyOrigins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executing request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp.StatusCode)

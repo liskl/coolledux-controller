@@ -163,6 +163,62 @@ func (h *CommandHandler) HandleGIFCommand(payload []byte) error {
 	return nil
 }
 
+// HandleColorModeCommand processes a plain-text select command. Payload is
+// either a decimal mode ID ("1", "5", ..., "31") or "off" to revert to the
+// static single-color setting (which we approximate by re-sending the last
+// known RGB color). Invalid payloads are rejected.
+func (h *CommandHandler) HandleColorModeCommand(payload []byte) error {
+	ctx := context.Background()
+	val := strings.TrimSpace(string(payload))
+
+	if strings.EqualFold(val, "off") {
+		h.mu.Lock()
+		color := h.state.Color
+		h.mu.Unlock()
+		if color == nil {
+			return nil // nothing to revert to; no-op
+		}
+		rgb := uint32(color.R)<<16 | uint32(color.G)<<8 | uint32(color.B)
+		if err := h.ctrl.SetColor(ctx, rgb); err != nil {
+			return fmt.Errorf("restoring single-color: %w", err)
+		}
+		return nil
+	}
+
+	mode, err := strconv.Atoi(val)
+	if err != nil {
+		return fmt.Errorf("parsing mode %q: %w", val, err)
+	}
+	if err := h.ctrl.SetColorMode(ctx, mode); err != nil {
+		return fmt.Errorf("setting color mode: %w", err)
+	}
+	return nil
+}
+
+// HandleColorSpeedCommand processes a plain-text number command. Payload is
+// a decimal speed (1-10). Values outside that range are clamped to the
+// valid range rather than rejected so a HA slider edge never produces a
+// 500 response.
+func (h *CommandHandler) HandleColorSpeedCommand(payload []byte) error {
+	ctx := context.Background()
+	val := strings.TrimSpace(string(payload))
+
+	n, err := strconv.Atoi(val)
+	if err != nil {
+		return fmt.Errorf("parsing speed %q: %w", val, err)
+	}
+	if n < 1 {
+		n = 1
+	}
+	if n > 10 {
+		n = 10
+	}
+	if err := h.ctrl.SetColorSpeed(ctx, uint8(n)); err != nil {
+		return fmt.Errorf("setting color speed: %w", err)
+	}
+	return nil
+}
+
 // GetCurrentState returns the current light state as JSON bytes.
 func (h *CommandHandler) GetCurrentState() []byte {
 	h.mu.Lock()

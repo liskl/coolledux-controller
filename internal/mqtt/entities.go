@@ -41,6 +41,41 @@ type BinarySensorConfig struct {
 	Device      HADevice `json:"device"`
 }
 
+// SelectConfig is the HA auto-discovery payload for a select entity. Used
+// here for the color-animation mode chooser.
+type SelectConfig struct {
+	Name                string   `json:"name"`
+	UniqueID            string   `json:"unique_id"`
+	ObjectID            string   `json:"object_id"`
+	CommandTopic        string   `json:"command_topic"`
+	StateTopic          string   `json:"state_topic"`
+	AvailabilityTopic   string   `json:"availability_topic"`
+	PayloadAvailable    string   `json:"payload_available"`
+	PayloadNotAvailable string   `json:"payload_not_available"`
+	Options             []string `json:"options"`
+	Icon                string   `json:"icon,omitempty"`
+	Device              HADevice `json:"device"`
+}
+
+// NumberConfig is the HA auto-discovery payload for a number entity. Used
+// here for the color-cycling speed slider.
+type NumberConfig struct {
+	Name                string   `json:"name"`
+	UniqueID            string   `json:"unique_id"`
+	ObjectID            string   `json:"object_id"`
+	CommandTopic        string   `json:"command_topic"`
+	StateTopic          string   `json:"state_topic"`
+	AvailabilityTopic   string   `json:"availability_topic"`
+	PayloadAvailable    string   `json:"payload_available"`
+	PayloadNotAvailable string   `json:"payload_not_available"`
+	Min                 float64  `json:"min"`
+	Max                 float64  `json:"max"`
+	Step                float64  `json:"step"`
+	Mode                string   `json:"mode,omitempty"` // "slider" | "box" | "auto"
+	Icon                string   `json:"icon,omitempty"`
+	Device              HADevice `json:"device"`
+}
+
 // SensorConfig is the HA auto-discovery payload for a sensor entity.
 type SensorConfig struct {
 	Name              string   `json:"name"`

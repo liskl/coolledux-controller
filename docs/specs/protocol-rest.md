@@ -122,6 +122,26 @@ Sets the global tint color applied to text/content. Maps to BLE command `0x13` s
 {"color": "#FF8800"}
 ```
 
+### POST /display/color/mode
+
+Activates one of the built-in color animation presets. Maps to BLE command `0x13` subtype `0x03`. See `docs/specs/protocol-ble.md` "Color Mode and Speed" for the full mode table and the semantic meaning of the per-mode `i3`/`i4`/`i2` parameters the firmware exposes.
+
+```json
+{"mode": 10}
+```
+
+Valid IDs are 1, 2, 5..31. Modes 3 and 4 are rejected with HTTP 400 because the APK resolves them to an empty no-op.
+
+### POST /display/color/speed
+
+Adjusts how fast the active color animation cycles. Maps to BLE command `0x13` subtype `0x02`.
+
+```json
+{"speed": 7}
+```
+
+Integer 1-10. No-op unless a color mode is currently active.
+
 ### GET /fonts
 
 ```json

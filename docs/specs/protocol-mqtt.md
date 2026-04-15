@@ -28,6 +28,8 @@ Commands (subscribed by service):
   coolledux/{device_id}/text/set           JSON: text, mode, speed, color, font_size, font
   coolledux/{device_id}/image/set          JSON: image_base64, mode, fit, x, y, width, height
   coolledux/{device_id}/gif/set            JSON: gif_base64, frame_duration, fit, x, y, width, height
+  coolledux/{device_id}/color/mode/set     plain text: "off" or a mode ID (e.g. "10")
+  coolledux/{device_id}/color/speed/set    plain text: integer 1-10
 ```
 
 ## Home Assistant Auto-Discovery Payloads
@@ -40,6 +42,13 @@ Published with `retain: true` on MQTT connect/reconnect.
 
 **Binary sensor** (`homeassistant/binary_sensor/coolledux_{device_id}_connection/config`):
 - Connectivity based on availability topic
+
+**Select entity** (`homeassistant/select/coolledux_{device_id}_color_mode/config`):
+- Options: `"off"` + the valid color mode IDs ("1", "2", "5", ..., "31")
+- `"off"` re-sends the last known static RGB color (reverts 0x13/0x03 → 0x13/0x01)
+
+**Number entity** (`homeassistant/number/coolledux_{device_id}_color_speed/config`):
+- Range 1-10, step 1, slider UI
 
 ## Last Will and Testament
 
@@ -64,6 +73,26 @@ On successful startup, publish `online` to the same topic with retain.
 ```
 
 Maps `state` ON/OFF to power, `brightness` to brightness command, `effect` to TextShowMode.
+
+### Color Mode (`coolledux/{device_id}/color/mode/set`)
+
+Plain-text payload (not JSON):
+
+```
+10
+```
+
+Valid values are `off` or any ID returned by the protocol color-mode table (1, 2, 5..31). `off` reverts to the last static RGB color. See `docs/specs/protocol-ble.md` "Color Mode and Speed" for what each mode does visually.
+
+### Color Speed (`coolledux/{device_id}/color/speed/set`)
+
+Plain-text integer 1-10:
+
+```
+7
+```
+
+Out-of-range values are clamped rather than rejected so HA slider edges don't produce errors. No-op unless a color mode is currently active.
 
 ### Text (`coolledux/{device_id}/text/set`)
 

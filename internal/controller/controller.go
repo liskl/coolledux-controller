@@ -158,6 +158,44 @@ func (c *Controller) SetColor(ctx context.Context, rgb uint32) error {
 	return nil
 }
 
+// SetColorSpeed sets how fast the built-in color-cycling animation runs
+// (command 0x13 subtype 0x02). Only meaningful when a color mode is
+// active; has no effect on the static single-color setting. speed is
+// passed through to the device; typical range is 1-10.
+func (c *Controller) SetColorSpeed(ctx context.Context, speed uint8) error {
+	cmd := protocol.BuildColorSpeedCommand(speed)
+	resp, err := c.transport.SendAndWait(ctx, cmd, protocol.CommandTimeout)
+	if err != nil {
+		return fmt.Errorf("setting color speed: %w", err)
+	}
+	if err := checkResponse(resp, protocol.RESPONSE_TYPE_COLOR); err != nil {
+		return fmt.Errorf("color speed command rejected: %w", err)
+	}
+	c.logger.Info("color speed set", "speed", speed)
+	return nil
+}
+
+// SetColorMode activates one of the device's built-in color animation
+// presets (command 0x13 subtype 0x03). Valid IDs are 1, 2, 5..31; modes 3
+// and 4 are rejected because the APK resolves them to an empty no-op.
+// See docs/specs/protocol-ble.md "Color Mode and Speed" for the palette
+// table and semantic guesses per mode.
+func (c *Controller) SetColorMode(ctx context.Context, mode int) error {
+	cmd, err := protocol.BuildColorModeCommand(mode)
+	if err != nil {
+		return err
+	}
+	resp, err := c.transport.SendAndWait(ctx, cmd, protocol.CommandTimeout)
+	if err != nil {
+		return fmt.Errorf("setting color mode %d: %w", mode, err)
+	}
+	if err := checkResponse(resp, protocol.RESPONSE_TYPE_COLOR); err != nil {
+		return fmt.Errorf("color mode %d rejected: %w", mode, err)
+	}
+	c.logger.Info("color mode set", "mode", mode)
+	return nil
+}
+
 // SyncTime sets the device clock to the given time.
 func (c *Controller) SyncTime(ctx context.Context, t time.Time) error {
 	cmd := protocol.BuildTimeSyncCommand(t)

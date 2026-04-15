@@ -496,6 +496,46 @@ func (h *Handlers) SetColor(c *fiber.Ctx) error {
 	return c.JSON(SuccessResponse{Success: true})
 }
 
+// SetColorMode activates a built-in color animation preset.
+func (h *Handlers) SetColorMode(c *fiber.Ctx) error {
+	var req ColorModeRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+			Success: false,
+			Error:   "invalid request body: " + err.Error(),
+		})
+	}
+	if err := h.ctrl.SetColorMode(c.Context(), req.Mode); err != nil {
+		// Invalid mode IDs are a client error; transport errors are 500.
+		// The protocol builder surfaces invalid modes as a distinct error
+		// string — route on that.
+		status := fiber.StatusInternalServerError
+		if strings.Contains(err.Error(), "not supported") {
+			status = fiber.StatusBadRequest
+		}
+		return c.Status(status).JSON(SuccessResponse{Success: false, Error: err.Error()})
+	}
+	return c.JSON(SuccessResponse{Success: true})
+}
+
+// SetColorSpeed adjusts color-animation cycle speed.
+func (h *Handlers) SetColorSpeed(c *fiber.Ctx) error {
+	var req ColorSpeedRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+			Success: false,
+			Error:   "invalid request body: " + err.Error(),
+		})
+	}
+	if err := h.ctrl.SetColorSpeed(c.Context(), req.Speed); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
+			Success: false,
+			Error:   err.Error(),
+		})
+	}
+	return c.JSON(SuccessResponse{Success: true})
+}
+
 // DisplayImage decodes a base64-encoded image and displays it on the LED matrix.
 func (h *Handlers) DisplayImage(c *fiber.Ctx) error {
 	var req ImageRequest

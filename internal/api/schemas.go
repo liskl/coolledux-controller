@@ -136,6 +136,17 @@ type GIFRequest struct {
 	Raw bool `json:"raw"`
 }
 
+// ColorModeRequest activates one of the built-in color animations. See
+// docs/specs/protocol-ble.md "Color Mode and Speed" for valid IDs.
+type ColorModeRequest struct {
+	Mode int `json:"mode"`
+}
+
+// ColorSpeedRequest adjusts how fast the active color animation cycles.
+type ColorSpeedRequest struct {
+	Speed uint8 `json:"speed"`
+}
+
 // ColorRequest sets the device's global tint color.
 type ColorRequest struct {
 	Color string `json:"color"` // "#RRGGBB" hex format

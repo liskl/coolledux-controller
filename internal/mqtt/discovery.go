@@ -3,6 +3,9 @@ package mqtt
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
+
+	"github.com/liskl/coolledux-controller/internal/protocol"
 )
 
 const (
@@ -79,6 +82,64 @@ func BuildConnectionSensorConfig(deviceID, topicPrefix, haPrefix string) (string
 		PayloadOff:  "offline",
 		DeviceClass: "connectivity",
 		Device:      refDevice(deviceID),
+	}
+
+	payload, _ := json.Marshal(cfg)
+	return topic, payload
+}
+
+// BuildColorModeSelectConfig builds the HA auto-discovery payload for the
+// color-animation mode select entity. Options are the valid mode IDs as
+// strings (derived from protocol.ColorModeIDs so adding a mode to the
+// table automatically surfaces it in HA).
+func BuildColorModeSelectConfig(deviceID, topicPrefix, haPrefix string) (string, []byte) {
+	topic := fmt.Sprintf("%s/select/coolledux_%s_color_mode/config", haPrefix, deviceID)
+
+	ids := protocol.ColorModeIDs()
+	options := make([]string, 0, len(ids)+1)
+	options = append(options, "off")
+	for _, id := range ids {
+		options = append(options, strconv.Itoa(id))
+	}
+
+	cfg := SelectConfig{
+		Name:                "CoolLEDUX Color Mode",
+		UniqueID:            fmt.Sprintf("coolledux_%s_color_mode", deviceID),
+		ObjectID:            "coolledux_sign_color_mode",
+		CommandTopic:        fmt.Sprintf("%s/%s/color/mode/set", topicPrefix, deviceID),
+		StateTopic:          fmt.Sprintf("%s/%s/color/mode/state", topicPrefix, deviceID),
+		AvailabilityTopic:   fmt.Sprintf("%s/%s/availability", topicPrefix, deviceID),
+		PayloadAvailable:    "online",
+		PayloadNotAvailable: "offline",
+		Options:             options,
+		Icon:                "mdi:palette",
+		Device:              refDevice(deviceID),
+	}
+
+	payload, _ := json.Marshal(cfg)
+	return topic, payload
+}
+
+// BuildColorSpeedNumberConfig builds the HA auto-discovery payload for the
+// color-animation speed slider (0x13/0x02). Range 1-10.
+func BuildColorSpeedNumberConfig(deviceID, topicPrefix, haPrefix string) (string, []byte) {
+	topic := fmt.Sprintf("%s/number/coolledux_%s_color_speed/config", haPrefix, deviceID)
+
+	cfg := NumberConfig{
+		Name:                "CoolLEDUX Color Speed",
+		UniqueID:            fmt.Sprintf("coolledux_%s_color_speed", deviceID),
+		ObjectID:            "coolledux_sign_color_speed",
+		CommandTopic:        fmt.Sprintf("%s/%s/color/speed/set", topicPrefix, deviceID),
+		StateTopic:          fmt.Sprintf("%s/%s/color/speed/state", topicPrefix, deviceID),
+		AvailabilityTopic:   fmt.Sprintf("%s/%s/availability", topicPrefix, deviceID),
+		PayloadAvailable:    "online",
+		PayloadNotAvailable: "offline",
+		Min:                 1,
+		Max:                 10,
+		Step:                1,
+		Mode:                "slider",
+		Icon:                "mdi:speedometer",
+		Device:              refDevice(deviceID),
 	}
 
 	payload, _ := json.Marshal(cfg)

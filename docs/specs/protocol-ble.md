@@ -86,8 +86,8 @@ Every command is built by appending the command byte and payload to a list, then
 | `0x11` | Scoreboard set time | `[0x03][hour:1][min:1][isTimer:1]` | `getScoreBoardSetTime` | 4368 | verified |
 | `0x11` | Scoreboard start/stop | `[0x04][0x01 or 0x00]` | `getScoreBoardStartOrStop` | 4382 | verified |
 | `0x13` | Set color | `[0x01][R4:nibble][GB:byte]` (RGB444) | `setColor` | 4706 | verified |
-| `0x13` | Set color speed | `[0x02][speed:1]` | `setColorSpeed` | 4835 | untested; see "Color Mode and Speed" section |
-| `0x13` | Set color mode (palette) | `[0x03][i3][i4?][i2][palette...]` — 31 preset cycling palettes | `setColorMode` | 4714 | untested; see "Color Mode and Speed" section (smali-verified) |
+| `0x13` | Set color speed | `[0x02][speed:1]` | `setColorSpeed` | 4835 | verified (hardware probe 2026-04-15) |
+| `0x13` | Set color mode (palette) | `[0x03][i3][i4?][i2][palette...]` — 31 preset cycling palettes | `setColorMode` | 4714 | verified (smali-grounded, hardware probe 2026-04-15); see "Color Mode and Speed" |
 | `0x1A` | Program start (simple) | `[CRC32:4 BE][rawLen:4 BE][index:1]` | `getStartDataForProgram` (2-arg) | 4484 | not used in current Go service |
 | `0x1C` | Drive state set | `[0x01][state:1]` | `getSetDriveState` | 4419 | no response on this device |
 | `0x1C` | Drive state get | `[0x02]` | `getDriveState` | 4277 | no response |
@@ -406,8 +406,8 @@ Every row below is grounded in the smali trace at `setColorMode` labels `:goto_f
 |   4  |  0  |  —   |  0  | (empty)        |   0 |
 |   5  |  2  |  4   | 90  | `colorMode1`   | 180 |
 |   6  |  2  |  5   | 90  | `colorMode1`   | 180 |
-|   7  |  2  |  0   | 12  | `colorMode7` (inline) | 25 |
-|   8  |  2  |  1   | 12  | `colorMode7`   |  25 |
+|   7  |  2  |  0   | 12  | `colorMode7` (inline) | 24 |
+|   8  |  2  |  1   | 12  | `colorMode7`   |  24 |
 |   9  |  2  |  0   | 18  | `colorMode9`   |  36 |
 |  10  |  2  |  1   | 18  | `colorMode10`  |  36 |
 |  11  |  2  |  2   | 18  | `colorMode9` (aliases `colorMode11`) | 36 |
@@ -448,17 +448,42 @@ Pattern constants live at `CoolledUXUtils.java:34-63`. A few worth understanding
 - **`colorMode19`..`colorMode28` (16 bytes each)** — single-channel fade ramps. 19/21/23 are high-to-low on R/G/B respectively; 20/22/24 are low-to-high; 25-28 mix channels for white/secondary fades.
 - **`colorMode29`, `colorMode30` (96 bytes)** — six 16-byte rows, each a fade ramp. `colorMode29` ramps high→low, `colorMode30` ramps low→high.
 
-### Probe plan
+### Validated semantics (hardware-confirmed 2026-04-15)
 
-All untested on real hardware as of 2026-04-15. When validating the implementation bead (`o2l`):
+Probe results from bead `o2l` on the 16x96 v10 firmware pinned down all three parameter bytes:
 
-1. **Speed sanity** — `setColorSpeed(1)` then `setColorMode(1)`; visually clock one full hue sweep. Compare to `setColorSpeed(10)`. Confirm speed scales inversely with cycle time.
-2. **Mode 1 vs 2 at the same speed** — same palette, `i4` differs by one byte (0 vs 1). Any visual difference pins down what `i4` means.
-3. **Mode 14 with `i2=2`** — 4-byte red/blue toggle. Expect fastest blink among presets.
-4. **Mode 7 (`i4=0`) vs mode 8 (`i4=1`)** — same 25-byte palette. Another clean `i4` A/B.
-5. **Mode 19 vs 20 at the same speed** — same length, different gradient direction. Pins down whether `i4=1` also flips some direction bit.
-6. **Mode 3 (empty default)** — expect either no-op, blank panel, or firmware fallback to default text.
-7. **Mode 31** — same 12-byte palette as mode 13 but `i3=4`. Expect a visible difference in frame grouping vs mode 13.
+- **`i4` is the animation direction code.** Mutually exclusive with the temporal-fade family (see `i3` below).
+
+  | `i4` | Direction |
+  |-----:|-----------|
+  |  0   | scroll right → left |
+  |  1   | scroll left → right |
+  |  2   | scroll bottom → top |
+  |  3   | scroll top → bottom |
+  |  4   | converge to center (both sides in) |
+  |  5   | diverge from center (both sides out) |
+
+  When `i4` is present the palette is laid out spatially — one color per column (for horizontal scrolls) or per row (for vertical scrolls) — and shifted every speed tick.
+
+- **`i2` is the palette position count** (`len(palette)/2`, since each position is two RGB444 bytes). Redundant information the firmware still expects explicitly; sending a mismatched value likely desyncs the renderer. Our builder computes it directly from the palette bytes.
+
+- **`i3` selects the transition style**, and critically determines whether `i4` is present at all:
+
+  | `i3` | `i4` byte | Observed behavior |
+  |-----:|:---------:|-------------------|
+  |  1   | omitted   | Temporal brightness pulse: black → full color → black, looped through the palette one color at a time. ~7 brightness steps each direction. |
+  |  2   | present   | Spatial scroll / converge / diverge per `i4` (the most common mode). |
+  |  3   | present   | Spatial (same family as `i3=2`); exact i3=2 vs i3=3 visual difference not isolated because every `i3=3` mode also has a distinct `i4` value. |
+  |  4   | omitted   | Continuous crossfade: one color fades directly into the next, no black gap. |
+
+  Presence vs absence of the `i4` byte is the single switch between spatial-scroll and temporal-fade animation families. That's why the builder emits zero length bytes for `i4` when the table marks it `-1` — sending `0` instead would flip the animation type.
+
+### Remaining unknowns
+
+- Fine distinction between `i3=2` and `i3=3` (both spatial): every `i3=3` mode in the APK combines with a different `i4` than its `i3=2` sibling, so an APK replay can't A/B them cleanly. Would need a custom builder that holds palette + `i4` constant and sweeps `i3`.
+- Whether `i3` ≥ 5 is meaningful. The APK never emits values above 4.
+- Whether `i4` values ≥ 6 are accepted or error out; the APK emits at most 5.
+- Speed scaling formula — we confirmed speed=1 is clearly slower than speed=10 on mode 1, but didn't measure the exact ms-per-step function.
 
 ## Device Info Response (`0x1F`)
 

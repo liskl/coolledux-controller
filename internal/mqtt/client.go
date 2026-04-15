@@ -125,6 +125,8 @@ func (c *Client) publishDiscovery() {
 		BuildLightConfig,
 		BuildConnectionSensorConfig,
 		BuildBrightnessSensorConfig,
+		BuildColorModeSelectConfig,
+		BuildColorSpeedNumberConfig,
 	}
 
 	for _, build := range builders {
@@ -151,6 +153,8 @@ func (c *Client) subscribeTopics() {
 		{suffix: "text/set", handler: c.handler.HandleTextCommand},
 		{suffix: "image/set", handler: c.handler.HandleImageCommand},
 		{suffix: "gif/set", handler: c.handler.HandleGIFCommand},
+		{suffix: "color/mode/set", handler: c.handler.HandleColorModeCommand},
+		{suffix: "color/speed/set", handler: c.handler.HandleColorSpeedCommand},
 	}
 
 	for _, s := range subs {

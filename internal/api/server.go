@@ -61,6 +61,8 @@ func NewServer(ctrl *controller.Controller, cfg *config.Config, logger *slog.Log
 	app.Post("/display/image", h.DisplayImage)
 	app.Post("/display/gif", h.DisplayGIF)
 	app.Post("/display/color", h.SetColor)
+	app.Post("/display/color/mode", h.SetColorMode)
+	app.Post("/display/color/speed", h.SetColorSpeed)
 	app.Get("/fonts", h.ListFonts)
 
 	// Overlays

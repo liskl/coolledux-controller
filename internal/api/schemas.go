@@ -128,6 +128,12 @@ type GIFRequest struct {
 	Y      int `json:"y"`
 	Width  int `json:"width"`
 	Height int `json:"height"`
+	// Raw opts into content type 0x0C: the GIF is uploaded verbatim and
+	// firmware decodes it on-device. Requires firmware v30+; older firmware
+	// ACKs the upload but renders nothing. When Raw=true, FrameDuration and
+	// Fit are ignored (device handles timing and scaling). Default false
+	// keeps the frame-by-frame 0x03 path that works on all firmware.
+	Raw bool `json:"raw"`
 }
 
 // ColorRequest sets the device's global tint color.

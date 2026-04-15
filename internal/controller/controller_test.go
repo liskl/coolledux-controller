@@ -373,6 +373,77 @@ func TestBuildAnimationProgram(t *testing.T) {
 	}
 }
 
+func TestBuildRawGIFProgram(t *testing.T) {
+	startCol, startRow, width, height := 16, 0, 64, 16
+	gifData := []byte("GIF89a\x40\x00\x10\x00\x00\xDE\xAD\xBE\xEF")
+
+	result := buildRawGIFProgram(startCol, startRow, width, height, gifData)
+
+	// Wrapper = 10 bytes; content = 26 + len(gif) bytes.
+	expectedContentLen := 26 + len(gifData)
+	expectedLen := 10 + expectedContentLen
+	if len(result) != expectedLen {
+		t.Fatalf("len = %d, want %d", len(result), expectedLen)
+	}
+
+	// Wrapper: 8 zero bytes, count = 1, separator = 0.
+	for i := 0; i < 8; i++ {
+		if result[i] != 0x00 {
+			t.Errorf("wrapper[%d] = 0x%02X, want 0x00", i, result[i])
+		}
+	}
+	if result[8] != 0x01 {
+		t.Errorf("contentCount = 0x%02X, want 0x01", result[8])
+	}
+	if result[9] != 0x00 {
+		t.Errorf("separator = 0x%02X, want 0x00", result[9])
+	}
+
+	content := result[10:]
+	if content[4] != 0x0C {
+		t.Errorf("content type = 0x%02X, want 0x0C (raw gif)", content[4])
+	}
+	if content[12] != 0x01 {
+		t.Errorf("layerType = 0x%02X, want 0x01", content[12])
+	}
+	// Unlike 0x02/0x03 which place startCol at offset 13, 0x0C inserts
+	// a zero reserved byte at 13 and starts the region fields at 14.
+	if content[13] != 0x00 {
+		t.Errorf("reserved[13] = 0x%02X, want 0x00", content[13])
+	}
+	if got := binary.BigEndian.Uint16(content[14:16]); got != uint16(startCol) {
+		t.Errorf("startCol = %d, want %d", got, startCol)
+	}
+	if got := binary.BigEndian.Uint16(content[16:18]); got != uint16(startRow) {
+		t.Errorf("startRow = %d, want %d", got, startRow)
+	}
+	if got := binary.BigEndian.Uint16(content[18:20]); got != uint16(width) {
+		t.Errorf("width = %d, want %d", got, width)
+	}
+	if got := binary.BigEndian.Uint16(content[20:22]); got != uint16(height) {
+		t.Errorf("height = %d, want %d", got, height)
+	}
+	if got := binary.BigEndian.Uint32(content[22:26]); got != uint32(len(gifData)) {
+		t.Errorf("gifLen = %d, want %d", got, len(gifData))
+	}
+	if !bytes.Equal(content[26:], gifData) {
+		t.Error("gif data mismatch")
+	}
+}
+
+func TestDisplayRawGIF_RejectsMissingMagic(t *testing.T) {
+	ctrl, _, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+
+	err := ctrl.DisplayRawGIF(context.Background(), []byte("not a gif"), 0, 0, 0, 0)
+	if err == nil {
+		t.Fatal("expected error for missing GIF magic, got nil")
+	}
+	if !bytes.Contains([]byte(err.Error()), []byte("GIF87a/GIF89a")) {
+		t.Errorf("error = %q, want mention of GIF magic", err.Error())
+	}
+}
+
 func TestBuildTextProgram(t *testing.T) {
 	width, height := 48, 16
 	mode := models.TextShowModeScrollLeft

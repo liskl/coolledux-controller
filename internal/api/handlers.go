@@ -557,6 +557,16 @@ func (h *Handlers) DisplayGIF(c *fiber.Ctx) error {
 		})
 	}
 
+	if req.Raw {
+		if err := h.ctrl.DisplayRawGIF(c.Context(), gifData, req.X, req.Y, req.Width, req.Height); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
+				Success: false,
+				Error:   err.Error(),
+			})
+		}
+		return c.JSON(SuccessResponse{Success: true})
+	}
+
 	fit, err := ledimage.ParseFitMode(req.Fit)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{

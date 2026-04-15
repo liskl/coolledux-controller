@@ -105,11 +105,14 @@ Verified working end-to-end: base64 PNG -> decode -> resize -> RGB444 -> LZSS ->
   "x": 0,
   "y": 0,
   "width": 96,
-  "height": 16
+  "height": 16,
+  "raw": false
 }
 ```
 
 `fit`, `x`, `y`, `width`, `height` accept the same values and defaults as `/display/image`.
+
+`raw: true` opts into content type `0x0C` (firmware v30+): the GIF is uploaded verbatim and decoded on-device. `frame_duration` and `fit` are ignored in this mode because the firmware handles timing and scaling. Older firmware ACKs the upload but renders nothing, so only set this when you know the device supports it. Default `false` keeps the frame-by-frame `0x03` path that works on all firmware revisions.
 
 ### POST /display/color
 

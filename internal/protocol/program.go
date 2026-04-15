@@ -123,6 +123,40 @@ func BuildTextContent(width, height int, mode, speed, stayTime uint8, moveSpace 
 	return buf
 }
 
+// BuildRawGIFContent builds a raw-GIF content block (content type 0x0C),
+// supported by firmware v30+. The device decodes the GIF itself instead of
+// receiving pre-extracted frames (the 0x03 path).
+//
+//	Format:
+//	[length:4 BE][0x0C][0x00 x7][layerType=0x01][0x00][startCol:2 BE][startRow:2 BE]
+//	[showWidth:2 BE][showHeight:2 BE][gifLen:4 BE][rawGifBytes...]
+//
+// Matches CoolledUXUtils.getDataWithAnimationCombineProgram overloads at
+// CoolledUXUtils.java:3103-3200. Note the layerType slot is the one-byte
+// field at offset 12, and offset 13 is a reserved zero (unlike 0x02 which
+// places startCol immediately after layerType).
+func BuildRawGIFContent(startCol, startRow, width, height int, gifData []byte) []byte {
+	// 4 length + 1 type + 7 reserved + 1 layer + 1 reserved + 2 startCol + 2 startRow
+	// + 2 showWidth + 2 showHeight + 4 gifLen + len(gifData)
+	// = 26 + len(gifData)
+	totalLen := 26 + len(gifData)
+	buf := make([]byte, totalLen)
+
+	putBE32(buf[0:4], uint32(totalLen))
+	buf[4] = 0x0C // content type: raw GIF
+	// buf[5:12] = 0x00 x7 (reserved)
+	buf[12] = 0x01 // layer type (APK hardcodes 1 here too)
+	// buf[13] = 0x00 reserved
+	putBE16(buf[14:16], uint16(startCol))
+	putBE16(buf[16:18], uint16(startRow))
+	putBE16(buf[18:20], uint16(width))
+	putBE16(buf[20:22], uint16(height))
+	putBE32(buf[22:26], uint32(len(gifData)))
+	copy(buf[26:], gifData)
+
+	return buf
+}
+
 // WrapProgramPayload wraps one or more content blocks in the program envelope.
 //
 //	Format: [0x00 x8][contentCount:1][0x00][content1...][content2...]

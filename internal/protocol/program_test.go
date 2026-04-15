@@ -239,6 +239,97 @@ func TestBuildAnimationContent(t *testing.T) {
 	}
 }
 
+func TestBuildRawGIFContent(t *testing.T) {
+	tests := []struct {
+		name     string
+		startCol int
+		startRow int
+		width    int
+		height   int
+		gifData  []byte
+	}{
+		{
+			name:     "minimal_gif",
+			startCol: 0,
+			startRow: 0,
+			width:    96,
+			height:   16,
+			gifData:  []byte("GIF89a\x60\x00\x10\x00\x00\x00\x00\x00"),
+		},
+		{
+			name:     "with_offset",
+			startCol: 32,
+			startRow: 4,
+			width:    48,
+			height:   8,
+			gifData:  bytes.Repeat([]byte{0xDE, 0xAD, 0xBE, 0xEF}, 64),
+		},
+		{
+			name:     "empty_payload",
+			startCol: 0,
+			startRow: 0,
+			width:    96,
+			height:   16,
+			gifData:  []byte{},
+		},
+		{
+			name:     "large_payload",
+			startCol: 10,
+			startRow: 2,
+			width:    64,
+			height:   14,
+			gifData:  bytes.Repeat([]byte{0x42}, 4096),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buf := BuildRawGIFContent(tt.startCol, tt.startRow, tt.width, tt.height, tt.gifData)
+
+			expectedLen := 26 + len(tt.gifData)
+			if len(buf) != expectedLen {
+				t.Fatalf("length = %d, want %d", len(buf), expectedLen)
+			}
+
+			if got := binary.BigEndian.Uint32(buf[0:4]); got != uint32(expectedLen) {
+				t.Errorf("totalLen = %d, want %d", got, expectedLen)
+			}
+			if buf[4] != 0x0C {
+				t.Errorf("content type = 0x%02X, want 0x0C", buf[4])
+			}
+			for i := 5; i < 12; i++ {
+				if buf[i] != 0x00 {
+					t.Errorf("reserved[%d] = 0x%02X, want 0x00", i, buf[i])
+				}
+			}
+			if buf[12] != 0x01 {
+				t.Errorf("layerType = 0x%02X, want 0x01", buf[12])
+			}
+			if buf[13] != 0x00 {
+				t.Errorf("reserved[13] = 0x%02X, want 0x00", buf[13])
+			}
+			if got := binary.BigEndian.Uint16(buf[14:16]); got != uint16(tt.startCol) {
+				t.Errorf("startCol = %d, want %d", got, tt.startCol)
+			}
+			if got := binary.BigEndian.Uint16(buf[16:18]); got != uint16(tt.startRow) {
+				t.Errorf("startRow = %d, want %d", got, tt.startRow)
+			}
+			if got := binary.BigEndian.Uint16(buf[18:20]); got != uint16(tt.width) {
+				t.Errorf("width = %d, want %d", got, tt.width)
+			}
+			if got := binary.BigEndian.Uint16(buf[20:22]); got != uint16(tt.height) {
+				t.Errorf("height = %d, want %d", got, tt.height)
+			}
+			if got := binary.BigEndian.Uint32(buf[22:26]); got != uint32(len(tt.gifData)) {
+				t.Errorf("gifLen field = %d, want %d", got, len(tt.gifData))
+			}
+			if !bytes.Equal(buf[26:], tt.gifData) {
+				t.Errorf("gif data mismatch")
+			}
+		})
+	}
+}
+
 func TestBuildTextContent(t *testing.T) {
 	tests := []struct {
 		name      string

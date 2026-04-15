@@ -203,6 +203,32 @@ Other content types follow the same `[totalLen:4][typeByte][7 zero bytes][layerT
 | `0x0B` scoreboard overlay | `getDataWithScoreBoardCombineProgram` | `:3647` (jadx fails; baksmali line 12685 of `CoolledUXUtils.smali`) |
 | `0x0C` raw GIF (firmware >= v30) | `getDataWithAnimationCombineProgram` (GIF overload) | `:3103` |
 
+### Raw GIF content (type `0x0C`, firmware v30+)
+
+Four builder overloads live at `CoolledUXUtils.java:3103-3230`. Byte layout differs from `0x03` in two ways: the layerType slot is followed by an extra reserved zero byte before the region fields, and the payload is the **entire GIF file verbatim** (not pre-extracted frames).
+
+```
+Offset  Size  Field                       Notes
+------  ----  --------------------------  -----------------------------
+0       4     Total length (incl. these)  BE uint32 = inner.size() + 4
+4       1     Content type                0x0C (raw GIF)
+5       7     Reserved                    0x00 * 7
+12      1     Layer type                  must be 0x01 (same gotcha as 0x02/0x03)
+13      1     Reserved                    0x00
+14      2     Start column                BE uint16
+16      2     Start row                   BE uint16
+18      2     Show width                  BE uint16
+20      2     Show height                 BE uint16
+22      4     GIF length                  BE uint32
+26      N     GIF file bytes              verbatim (GIF87a/GIF89a header intact)
+```
+
+Wrap, compress, and upload the same way as any other content (`WrapProgramPayload` → LZSS → `0x02` 3-arg program start with CRC32). Program-start transport is identical to `0x03`.
+
+**Version gate.** The APK (`:2826`) only picks `0x0C` when `DeviceManager.CoolleduxDeviceVersion >= 30 && < 255`, reading the version from BLE scan record byte 21 (`DeviceManager.java:5633`). Older firmware ACKs the upload but renders nothing. BlueZ on Linux hands us parsed advertisement fields, not the raw scan record, so we can't replicate that check directly; our `/display/gif` endpoint exposes an opt-in `raw: true` flag instead, and the caller is responsible for knowing their device firmware.
+
+**Encrypted variant (`getDataWithAnimationCombineProgramEncryped`, `:3202`).** First 32 bytes of the GIF are XOR'd with `0xDA`. Only used for app-bundled "material" GIFs; user-supplied GIFs are sent plain. Not implemented here.
+
 For the countdown UI the APK uploads a **composite program** with two content blocks: a `0x03` animation (18-frame purple frame + hourglass, from `ic_countdown_bg_animation_1696.gif`) and a `0x0A` time-count overlay. The `0x0A` body is:
 
 ```

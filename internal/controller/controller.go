@@ -465,6 +465,33 @@ func (c *Controller) DisplayGIF(ctx context.Context, gifData []byte, frameDurati
 	return nil
 }
 
+// DisplayRawGIF uploads a GIF file verbatim using content type 0x0C, letting
+// firmware v30+ decode it on-device. Region semantics match DisplayGIF.
+//
+// The caller is responsible for knowing the device firmware supports 0x0C;
+// older firmware ACKs but renders nothing. Our BLE stack on Linux doesn't
+// expose the advertisement scan-record byte the APK uses for version
+// detection (bead: h6i), so this is opt-in at the API layer.
+func (c *Controller) DisplayRawGIF(ctx context.Context, gifData []byte, x, y, width, height int) error {
+	if len(gifData) < 6 || (string(gifData[0:6]) != "GIF87a" && string(gifData[0:6]) != "GIF89a") {
+		return fmt.Errorf("raw gif: missing GIF87a/GIF89a magic")
+	}
+
+	x, y, width, height, err := c.resolveRegion(x, y, width, height)
+	if err != nil {
+		return err
+	}
+
+	programPayload := buildRawGIFProgram(x, y, width, height, gifData)
+
+	if err := c.sendProgram(ctx, programPayload); err != nil {
+		return fmt.Errorf("sending raw gif program: %w", err)
+	}
+
+	c.logger.Info("raw gif displayed", "bytes", len(gifData), "x", x, "y", y, "width", width, "height", height)
+	return nil
+}
+
 // DisplayText renders a string using the embedded 16-row bold bitmap font and
 // uploads it as a text content program (content type 0x01).
 //
@@ -758,6 +785,14 @@ func buildAnimationContent(startCol, startRow, width, height int, frames [][]byt
 		offset += len(f)
 	}
 	return content
+}
+
+// buildRawGIFProgram assembles a raw-GIF program payload (content type 0x0C,
+// firmware v30+). The GIF file is embedded verbatim; the device handles
+// decoding, frame timing, and looping. Delegates byte layout to
+// protocol.BuildRawGIFContent so the APK-derived format lives in one place.
+func buildRawGIFProgram(startCol, startRow, width, height int, gifData []byte) []byte {
+	return wrapProgram(protocol.BuildRawGIFContent(startCol, startRow, width, height, gifData))
 }
 
 // buildTextProgram assembles a text program payload.

@@ -86,8 +86,8 @@ Every command is built by appending the command byte and payload to a list, then
 | `0x11` | Scoreboard set time | `[0x03][hour:1][min:1][isTimer:1]` | `getScoreBoardSetTime` | 4368 | verified |
 | `0x11` | Scoreboard start/stop | `[0x04][0x01 or 0x00]` | `getScoreBoardStartOrStop` | 4382 | verified |
 | `0x13` | Set color | `[0x01][R4:nibble][GB:byte]` (RGB444) | `setColor` | 4706 | verified |
-| `0x13` | Set color speed | `[0x02][speed:1]` | `setColorSpeed` | 4835 | untested |
-| `0x13` | Set color mode (palette) | `[0x03][modeBytes...]` — preset cycling palettes | `setColorMode` | 4714 | untested |
+| `0x13` | Set color speed | `[0x02][speed:1]` | `setColorSpeed` | 4835 | untested; see "Color Mode and Speed" section |
+| `0x13` | Set color mode (palette) | `[0x03][i3][i4?][i2][palette...]` — 31 preset cycling palettes | `setColorMode` | 4714 | untested; see "Color Mode and Speed" section (smali-verified) |
 | `0x1A` | Program start (simple) | `[CRC32:4 BE][rawLen:4 BE][index:1]` | `getStartDataForProgram` (2-arg) | 4484 | not used in current Go service |
 | `0x1C` | Drive state set | `[0x01][state:1]` | `getSetDriveState` | 4419 | no response on this device |
 | `0x1C` | Drive state get | `[0x02]` | `getDriveState` | 4277 | no response |
@@ -366,6 +366,99 @@ byte 1: (G << 4) | B  (high nibble = green, low nibble = blue)
 ### Pixel ordering
 
 Column-major: outer loop columns (0..width-1), inner loop rows (0..height-1). The source index is `row * width + col`. See `getDrawListDataFColor` at `CoolledUXUtils.java:4267`.
+
+## Color Mode and Speed (`0x13/0x02`, `0x13/0x03`)
+
+Two control commands that configure automated color cycling. Jadx can't cleanly recover the `setColorMode` control flow (register reuse, multi-entry `goto` labels), so the table below is derived from the smali at `classes3.dex:com/jtkj/led1248/light/utils/CoolledUXUtils.smali:20288` rather than the `.java` at `CoolledUXUtils.java:4714`. The palette fields `colorMode1` through `colorMode31` are declared at `CoolledUXUtils.java:34-63` and are byte-faithful.
+
+### `0x13/0x02` — Set color speed
+
+Trivial: one byte of speed, stream-framed. Built at `CoolledUXUtils.java:4835`.
+
+```
+[0x13][0x02][speed:1]
+```
+
+`speed` is 1-10 per the global default convention (the method passes the caller's integer through unchanged). Higher values cycle faster.
+
+### `0x13/0x03` — Set color mode
+
+Structure after the `0x13 0x03` header:
+
+```
+[i3:1] [i4:1, present only if i4 >= 0] [i2:1] [palette bytes...]
+```
+
+- `i3` — probable meaning: frame/repeat group. Values observed: 0, 1, 2, 3, 4.
+- `i4` — probable meaning: sub-effect modifier (color channel, strobe style). Present as a byte only when `>= 0`. Skipping it entirely (not just sending 0) changes the packet length — the firmware distinguishes "no i4" from "i4 = 0".
+- `i2` — probable meaning: duration / period / stride. Values observed: 0, 2, 6, 8, 18, 30, 48, 90.
+- `palette` — comma-split RGB444 bytes from the `colorModeN` static fields. Odd byte = `0x0R`, even byte = `(G << 4) | B` (see RGB444 section above).
+
+#### Mode table
+
+Every row below is grounded in the smali trace at `setColorMode` labels `:goto_f6`, `:goto_46`, `:goto_65`, `:goto_67`, `:goto_95`, `:goto_9f`, `:goto_1c`. Several palettes alias each other (e.g. `colorMode1 == colorMode2 == colorMode4 == colorMode5 == colorMode6`); the "Palette source" column names the register-loaded string, not necessarily the `colorModeN` matching the mode index.
+
+| Mode | `i3` | `i4` | `i2` | Palette source | Bytes |
+|-----:|:---:|:----:|:---:|----------------|------:|
+|   1  |  2  |  0   | 90  | `colorMode1`   | 180 |
+|   2  |  2  |  1   | 90  | `colorMode1`   | 180 |
+|   3  |  0  |  —   |  0  | (empty)        |   0 |
+|   4  |  0  |  —   |  0  | (empty)        |   0 |
+|   5  |  2  |  4   | 90  | `colorMode1`   | 180 |
+|   6  |  2  |  5   | 90  | `colorMode1`   | 180 |
+|   7  |  2  |  0   | 12  | `colorMode7` (inline) | 25 |
+|   8  |  2  |  1   | 12  | `colorMode7`   |  25 |
+|   9  |  2  |  0   | 18  | `colorMode9`   |  36 |
+|  10  |  2  |  1   | 18  | `colorMode10`  |  36 |
+|  11  |  2  |  2   | 18  | `colorMode9` (aliases `colorMode11`) | 36 |
+|  12  |  2  |  3   | 18  | `colorMode9` (aliases `colorMode12`) | 36 |
+|  13  |  1  |  —   |  6  | `colorMode13`  |  12 |
+|  14  |  1  |  —   |  2  | `colorMode14` (inline) |   4 |
+|  15  |  3  |  4   | 18  | `colorMode9` (aliases `colorMode15`) | 36 |
+|  16  |  3  |  5   | 18  | `colorMode9` (aliases `colorMode16`) | 36 |
+|  17  |  2  |  0   | 30  | `colorMode17` (inline) | 60 |
+|  18  |  2  |  1   | 30  | `colorMode17` (aliases `colorMode18`) | 60 |
+|  19  |  2  |  0   |  8  | `colorMode19`  |  16 |
+|  20  |  2  |  1   |  8  | `colorMode20`  |  16 |
+|  21  |  2  |  0   |  8  | `colorMode21`  |  16 |
+|  22  |  2  |  1   |  8  | `colorMode22`  |  16 |
+|  23  |  2  |  0   |  8  | `colorMode23`  |  16 |
+|  24  |  2  |  1   |  8  | `colorMode24`  |  16 |
+|  25  |  2  |  0   |  8  | `colorMode25`  |  16 |
+|  26  |  2  |  1   |  8  | `colorMode26`  |  16 |
+|  27  |  2  |  0   |  8  | `colorMode27`  |  16 |
+|  28  |  2  |  1   |  8  | `colorMode28`  |  16 |
+|  29  |  2  |  0   | 48  | `colorMode29`  |  96 |
+|  30  |  2  |  1   | 48  | `colorMode30`  |  96 |
+|  31  |  4  |  —   |  6  | `colorMode13` (aliases `colorMode31`) | 12 |
+| other|  0  |  —   |  0  | (empty)        |   0 |
+
+Modes 3 and 4 fall through every enumerated branch to the `:cond_f0` empty default (zero palette, zero params), same as out-of-range inputs. They're effectively no-ops that the app should never send; the corresponding Java cases in `setColorMode` don't exist.
+
+`colorMode21`'s declaration at `CoolledUXUtils.java:47` has a trailing comma (`"...00,30,00,10,"`). `getSplitDataStringByDot` emits an extra empty-string entry that likely produces a single `0x00` trailing byte; verify on hardware if it ever matters.
+
+#### Palette patterns
+
+Pattern constants live at `CoolledUXUtils.java:34-63`. A few worth understanding visually:
+
+- **`colorMode1` (180 bytes)** — full RGB444 hue sweep: red → red/green ramp → yellow → yellow/blue ramp → magenta → magenta/red ramp. Six rows of 30 bytes each. Aliased by `colorMode2`, `colorMode4`, `colorMode5`, `colorMode6`.
+- **`colorMode9` (36 bytes)** — six distinct solid colors (red, magenta, blue, cyan, green, yellow), each repeated three times. `colorMode11`, `colorMode12`, `colorMode15`, `colorMode16` have the same 36-byte layout but the second row in `colorMode10` is doubled instead of stepping to blue, giving a slightly different cycle.
+- **`colorMode14` (4 bytes)** — `0F,00,00,0F`, a pure red ↔ blue toggle. With `i2=2` this is the fastest preset.
+- **`colorMode17` (60 bytes)** — six 10-byte rows, each ending in 4 black bytes (`00,00,00,00`), so each color spends 40% of its row as a gap. Produces discrete color-plus-blank pulses.
+- **`colorMode19`..`colorMode28` (16 bytes each)** — single-channel fade ramps. 19/21/23 are high-to-low on R/G/B respectively; 20/22/24 are low-to-high; 25-28 mix channels for white/secondary fades.
+- **`colorMode29`, `colorMode30` (96 bytes)** — six 16-byte rows, each a fade ramp. `colorMode29` ramps high→low, `colorMode30` ramps low→high.
+
+### Probe plan
+
+All untested on real hardware as of 2026-04-15. When validating the implementation bead (`o2l`):
+
+1. **Speed sanity** — `setColorSpeed(1)` then `setColorMode(1)`; visually clock one full hue sweep. Compare to `setColorSpeed(10)`. Confirm speed scales inversely with cycle time.
+2. **Mode 1 vs 2 at the same speed** — same palette, `i4` differs by one byte (0 vs 1). Any visual difference pins down what `i4` means.
+3. **Mode 14 with `i2=2`** — 4-byte red/blue toggle. Expect fastest blink among presets.
+4. **Mode 7 (`i4=0`) vs mode 8 (`i4=1`)** — same 25-byte palette. Another clean `i4` A/B.
+5. **Mode 19 vs 20 at the same speed** — same length, different gradient direction. Pins down whether `i4=1` also flips some direction bit.
+6. **Mode 3 (empty default)** — expect either no-op, blank panel, or firmware fallback to default text.
+7. **Mode 31** — same 12-byte palette as mode 13 but `i3=4`. Expect a visible difference in frame grouping vs mode 13.
 
 ## Device Info Response (`0x1F`)
 

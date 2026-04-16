@@ -89,8 +89,8 @@ Every command is built by appending the command byte and payload to a list, then
 | `0x13` | Set color speed | `[0x02][speed:1]` | `setColorSpeed` | 4835 | verified (hardware probe 2026-04-15) |
 | `0x13` | Set color mode (palette) | `[0x03][i3][i4?][i2][palette...]` — 31 preset cycling palettes | `setColorMode` | 4714 | verified (smali-grounded, hardware probe 2026-04-15); see "Color Mode and Speed" |
 | `0x1A` | Program start (simple) | `[CRC32:4 BE][rawLen:4 BE][index:1]` | `getStartDataForProgram` (2-arg) | 4484 | not used in current Go service |
-| `0x1C` | Drive state set | `[0x01][state:1]` | `getSetDriveState` | 4419 | no response on this device |
-| `0x1C` | Drive state get | `[0x02]` | `getDriveState` | 4277 | no response |
+| `0x1C` | Drive state set | `[0x01][state:1]` | `getSetDriveState` | 4419 | **not supported on 16x96** (probed 2026-04-16, see "Drive State" note) |
+| `0x1C` | Drive state get | `[0x02]` | `getDriveState` | 4277 | **not supported on 16x96** (no response; see "Drive State" note) |
 | `0x1E` | Set device info field | `[0x01=brightness, 0x02=mirror, 0x03=rotate][value:1]` | `setDeviceInfo` | 4843 | untested; alternate path to 0x04/0x0C |
 | `0x1F` | Get device info | Empty | `getDeviceInfo` | 4165 | verified |
 | `0xFD` | OTA version query | Empty | `getDeviceOTAVersion` | 4171 | untested |
@@ -484,6 +484,17 @@ Probe results from bead `o2l` on the 16x96 v10 firmware pinned down all three pa
 - Whether `i3` ≥ 5 is meaningful. The APK never emits values above 4.
 - Whether `i4` values ≥ 6 are accepted or error out; the APK emits at most 5.
 - Speed scaling formula — we confirmed speed=1 is clearly slower than speed=10 on mode 1, but didn't measure the exact ms-per-step function.
+
+## Drive State (`0x1C/0x01`, `0x1C/0x02`) — not supported on 16x96
+
+The APK ships a "drive state" UI (`ILedCarDriveFragment.java:25-30`) for car-mounted signs: NORMAL, LEFT, RIGHT, BACK, PARK, EMERGENCY. The builders live at `CoolledUXUtils.java:4277` (get) and `:4419` (set); byte layout is trivial — set is `[0x1C, 0x01, state]`, get is `[0x1C, 0x02]`, both stream-framed with no CRC.
+
+**Hardware validation (2026-04-16, JT_HW358.02 16x96 v10 firmware):**
+
+- `get` (0x1C/0x02) times out after 5 s with no response bytes.
+- `set` (0x1C/0x01) for states 0 (NORMAL), 1 (LEFT), and 5 (EMERGENCY) produces no visible change on a panel displaying static text. States 2, 3, 4 were not tested but a dead command code is unlikely to have per-state behavior.
+
+The CoolLEDUX sign packs the same BLE service UUIDs as the iLedCar / iDevilEyes family but does not implement this overlay. Our Go service intentionally does not expose builders, controller methods, or endpoints for `0x1C` — if we ever add iLedCar support under `23i`, regenerate the builders from the APK rather than carrying dead code. Bead `v8w` (discovery) closed with this finding; bead `jbt` (implementation) closed as not-applicable.
 
 ## Device Info Response (`0x1F`)
 

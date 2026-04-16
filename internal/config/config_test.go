@@ -194,3 +194,76 @@ func TestLoad_DefaultDeviceID(t *testing.T) {
 		t.Errorf("default DeviceID() = %q, want %q", got, want)
 	}
 }
+
+func TestResolveDevices_PrefersDevicesList(t *testing.T) {
+	// When both the legacy DeviceMAC and the new Devices list are set,
+	// Devices wins — this is the upgrade path for existing config files.
+	b := BLEConfig{
+		DeviceMAC: "LEGACY:MAC",
+		Devices: []DeviceConfig{
+			{Name: "a", MAC: "01:00:00:FB:A4:16"},
+			{Name: "b", MAC: "01:00:00:FB:A4:17"},
+		},
+	}
+	got := b.ResolveDevices()
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	if got[0].MAC != "01:00:00:FB:A4:16" || got[1].MAC != "01:00:00:FB:A4:17" {
+		t.Errorf("devices = %+v, want the Devices list not legacy", got)
+	}
+}
+
+func TestResolveDevices_FallsBackToLegacyMAC(t *testing.T) {
+	b := BLEConfig{DeviceMAC: "01:00:00:FB:A4:16"}
+	got := b.ResolveDevices()
+	if len(got) != 1 || got[0].MAC != "01:00:00:FB:A4:16" {
+		t.Errorf("devices = %+v, want single legacy entry", got)
+	}
+}
+
+func TestResolveDevices_EmptyWhenNeitherSet(t *testing.T) {
+	b := BLEConfig{}
+	if got := b.ResolveDevices(); len(got) != 0 {
+		t.Errorf("devices = %+v, want empty", got)
+	}
+}
+
+func TestScanOnStartupEnabled_Defaults(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  BLEConfig
+		want bool
+	}{
+		{"no devices, no override -> scan", BLEConfig{}, true},
+		{"devices set, no override -> no scan", BLEConfig{Devices: []DeviceConfig{{MAC: "x"}}}, false},
+		{"legacy MAC, no override -> no scan", BLEConfig{DeviceMAC: "x"}, false},
+		{"override true regardless of devices", BLEConfig{Devices: []DeviceConfig{{MAC: "x"}}, ScanOnStartup: boolPtr(true)}, true},
+		{"override false regardless of empty", BLEConfig{ScanOnStartup: boolPtr(false)}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.ScanOnStartupEnabled(); got != tt.want {
+				t.Errorf("ScanOnStartupEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDeviceConfig_ID(t *testing.T) {
+	d := DeviceConfig{MAC: "AB:CD:EF:12:34:56"}
+	if got := d.ID(); got != "abcdef123456" {
+		t.Errorf("ID() = %q, want abcdef123456", got)
+	}
+}
+
+func TestNormalizeMAC(t *testing.T) {
+	if got := NormalizeMAC("AB:CD:EF:12:34:56"); got != "abcdef123456" {
+		t.Errorf("got %q, want abcdef123456", got)
+	}
+	if got := NormalizeMAC(""); got != "" {
+		t.Errorf("empty: got %q, want empty", got)
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }

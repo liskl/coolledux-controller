@@ -9,10 +9,9 @@ import (
 	"syscall"
 
 	"github.com/liskl/coolledux-controller/internal/api"
-	"github.com/liskl/coolledux-controller/internal/ble"
 	"github.com/liskl/coolledux-controller/internal/config"
-	"github.com/liskl/coolledux-controller/internal/controller"
 	"github.com/liskl/coolledux-controller/internal/mqtt"
+	"github.com/liskl/coolledux-controller/internal/registry"
 )
 
 func main() {
@@ -30,52 +29,71 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Set up structured logging.
 	logger := setupLogger(cfg.Log)
-	logger.Info("starting coolledux-controller",
-		"device_mac", cfg.BLE.DeviceMAC,
-		"device_id", cfg.DeviceID(),
-		"api_listen", cfg.API.Listen,
-		"mqtt_broker", cfg.MQTT.Broker,
-	)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// BLE layer.
-	bleClient := ble.NewClient(logger)
-	transport := ble.NewTransport(bleClient, logger)
-	ctrl := controller.New(bleClient, transport, cfg, logger)
-
-	// Connect to BLE device.
-	logger.Info("connecting to BLE device", "mac", cfg.BLE.DeviceMAC)
-	if err := ctrl.Connect(ctx); err != nil {
-		logger.Error("BLE connection failed, continuing without device", "error", err)
-		// Continue anyway so the API and MQTT are still available.
-		// The controller will report disconnected state.
-	} else {
-		logger.Info("BLE connected")
-	}
-
-	// MQTT layer.
-	mqttHandler := mqtt.NewCommandHandler(ctrl, logger)
-	mqttClient := mqtt.NewClient(&cfg.MQTT, cfg.DeviceID(), mqttHandler, logger)
-
-	logger.Info("connecting to MQTT broker", "broker", cfg.MQTT.Broker)
-	if err := mqttClient.Connect(ctx); err != nil {
-		logger.Error("MQTT connection failed, continuing without MQTT", "error", err)
-	} else {
-		logger.Info("MQTT connected, HA discovery published")
-	}
-
-	// REST API.
-	apiServer := api.NewServer(ctrl, cfg, logger)
-	go func() {
-		if err := apiServer.Start(); err != nil {
-			logger.Error("API server error", "error", err)
-			cancel()
+	// Build the device registry from config. Stage-2 work will add
+	// startup scan to auto-populate when no devices are explicitly set.
+	reg := registry.New()
+	devices := cfg.BLE.ResolveDevices()
+	for _, dev := range devices {
+		entry := registry.BuildEntry(dev, cfg, logger)
+		if err := reg.Add(entry); err != nil {
+			logger.Warn("skipping duplicate device", "mac", dev.MAC, "error", err)
+			continue
 		}
-	}()
+	}
+
+	logger.Info("starting coolledux-controller",
+		"api_listen", cfg.API.Listen,
+		"mqtt_broker", cfg.MQTT.Broker,
+		"devices", reg.IDs(),
+	)
+
+	// Connect each registered device. One device's BLE failure must not
+	// block the others — log and keep going.
+	for _, entry := range reg.List() {
+		logger.Info("connecting to BLE device", "id", entry.ID, "mac", entry.MAC)
+		if err := entry.Controller.Connect(ctx); err != nil {
+			logger.Error("BLE connection failed, continuing without device",
+				"id", entry.ID, "error", err)
+			continue
+		}
+		logger.Info("BLE connected", "id", entry.ID)
+	}
+
+	// MQTT + REST still target the primary device during Stage 1. Stage-3
+	// and Stage-4 work will add per-device routes and per-device topics.
+	primary := reg.Primary()
+	if primary == nil {
+		logger.Warn("no devices registered; running with MQTT and REST disabled for device control")
+	}
+
+	var mqttClient *mqtt.Client
+	if primary != nil {
+		mqttHandler := mqtt.NewCommandHandler(primary.Controller, logger)
+		mqttClient = mqtt.NewClient(&cfg.MQTT, primary.ID, mqttHandler, logger)
+
+		logger.Info("connecting to MQTT broker", "broker", cfg.MQTT.Broker)
+		if err := mqttClient.Connect(ctx); err != nil {
+			logger.Error("MQTT connection failed, continuing without MQTT", "error", err)
+		} else {
+			logger.Info("MQTT connected, HA discovery published")
+		}
+	}
+
+	var apiServer *api.Server
+	if primary != nil {
+		apiServer = api.NewServer(primary.Controller, cfg, logger)
+		go func() {
+			if err := apiServer.Start(); err != nil {
+				logger.Error("API server error", "error", err)
+				cancel()
+			}
+		}()
+	}
 
 	// Wait for shutdown signal.
 	sigCh := make(chan os.Signal, 1)
@@ -90,14 +108,20 @@ func main() {
 	// Graceful shutdown.
 	logger.Info("shutting down")
 
-	if err := apiServer.Shutdown(); err != nil {
-		logger.Error("API shutdown error", "error", err)
+	if apiServer != nil {
+		if err := apiServer.Shutdown(); err != nil {
+			logger.Error("API shutdown error", "error", err)
+		}
 	}
 
-	mqttClient.Disconnect()
+	if mqttClient != nil {
+		mqttClient.Disconnect()
+	}
 
-	if err := ctrl.Disconnect(ctx); err != nil {
-		logger.Error("BLE disconnect error", "error", err)
+	for _, entry := range reg.List() {
+		if err := entry.Controller.Disconnect(ctx); err != nil {
+			logger.Error("BLE disconnect error", "id", entry.ID, "error", err)
+		}
 	}
 
 	logger.Info("shutdown complete")

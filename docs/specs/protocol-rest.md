@@ -29,7 +29,6 @@ Every device-addressed endpoint is keyed by the panel's registry ID (the normali
 | POST | `/device/:id/time` | `{"hour":14,"minute":30,"second":0}` | Sync time |
 | POST | `/device/:id/timer` | `{"items":[...]}` | Set timers |
 | GET | `/device/:id/timer` | - | Read raw timer bytes from device |
-| POST | `/device/:id/reset` | - | Factory reset |
 | POST | `/device/:id/show-id` | `{"on":true}` | 0x1E/0x01 toggle |
 | POST | `/device/:id/remote` | `{"on":false}` | 0x1E/0x02 toggle |
 | POST | `/device/:id/password/check` | `{"password":"1234"}` | 0x0D verify; 200 ok, 401 rejected, 400 bad format |

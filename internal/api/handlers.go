@@ -371,21 +371,6 @@ func (h *Handlers) GetTimers(c *fiber.Ctx) error {
 	})
 }
 
-// ResetDevice sends a factory reset command to the device.
-func (h *Handlers) ResetDevice(c *fiber.Ctx) error {
-	ctrl, err := h.resolve(c)
-	if err != nil {
-		return err
-	}
-	if err := ctrl.ResetDevice(c.Context()); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
-	}
-	return c.JSON(SuccessResponse{Success: true})
-}
-
 // CheckPassword verifies a panel password (0x0D). Returns 200 on
 // verified, 401 on rejection by the device, 500 on transport errors,
 // 400 on invalid input (bad hex, wrong length).

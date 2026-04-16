@@ -337,12 +337,6 @@ func (c *Controller) GetDeviceInfo(ctx context.Context) (*models.DeviceInfo, err
 	return info, nil
 }
 
-// ResetDevice is a stub. The reset command code has not been verified from the
-// Android app analysis, so we refuse to send an unverified command.
-func (c *Controller) ResetDevice(_ context.Context) error {
-	return fmt.Errorf("reset command not verified on this device")
-}
-
 // --- Countdown timer overlay ---
 
 // CountdownStatus requests the current countdown state from the device.

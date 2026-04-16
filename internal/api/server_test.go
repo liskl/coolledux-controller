@@ -518,7 +518,10 @@ func TestDisplayImage_InvalidMode(t *testing.T) {
 	}
 }
 
-func TestResetDevice_Disconnected(t *testing.T) {
+func TestResetDevice_RouteRemoved(t *testing.T) {
+	// The /reset route was dropped because no reset BLE command exists
+	// in the APK. Confirm the endpoint 404s so a consumer notices at
+	// first use if they still rely on it.
 	srv := testServer(t)
 
 	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/reset", nil)
@@ -532,8 +535,8 @@ func TestResetDevice_Disconnected(t *testing.T) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusInternalServerError {
-		t.Errorf("expected 500, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
 	}
 
 	respBody, _ := io.ReadAll(resp.Body)

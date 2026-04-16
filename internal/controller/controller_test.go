@@ -745,17 +745,6 @@ func TestGetDeviceInfo_NotConnected(t *testing.T) {
 	}
 }
 
-func TestResetDevice_Stub(t *testing.T) {
-	ctrl := testController()
-	err := ctrl.ResetDevice(context.Background())
-	if err == nil {
-		t.Fatal("expected error from ResetDevice stub")
-	}
-	if err.Error() != "reset command not verified on this device" {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
 func TestDisplayImage_NotConnected(t *testing.T) {
 	ctrl := testController()
 	pngBytes := makeSmallPNG()
@@ -1064,17 +1053,6 @@ func TestGetTimers_Connected(t *testing.T) {
 	}
 	if resp == nil {
 		t.Error("expected non-nil response")
-	}
-}
-
-func TestResetDevice_Connected_StillStubbed(t *testing.T) {
-	ctrl, _, client := connectedController()
-	defer client.OverrideConnectedForTest(false)
-
-	// Even when connected, ResetDevice returns an error because the command is not verified.
-	err := ctrl.ResetDevice(context.Background())
-	if err == nil {
-		t.Fatal("expected error from ResetDevice stub")
 	}
 }
 

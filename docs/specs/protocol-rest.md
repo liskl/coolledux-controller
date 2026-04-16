@@ -2,29 +2,48 @@
 
 Fiber v2, default port `:8080`.
 
+Every device-addressed endpoint is keyed by the panel's registry ID (the normalized MAC — lowercase, no colons; `01:00:00:FB:A4:16` becomes `010000fba416`). Use `GET /devices` to list the IDs currently registered; `POST /scan` discovers nearby panels without modifying the registry. Startup auto-populates the registry when `ble.devices` is empty and `ble.scan_on_startup` isn't explicitly disabled.
+
 ## Endpoints
+
+### Service-level
 
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| GET | `/health` | - | Health check (BLE/MQTT status, uptime) |
-| GET | `/device/info` | - | Device info from BLE |
-| POST | `/device/power` | `{"state":"on"}` | Power on/off |
-| POST | `/device/brightness` | `{"brightness":128}` | Brightness 0-255 |
-| POST | `/device/flip` | `{"mode":"horizontal"}` | none/horizontal/vertical/both |
-| POST | `/device/channel` | `{"channel":0}` | Switch program/channel slot (0-9 verified) |
-| POST | `/device/time` | `{"hour":14,"minute":30,"second":0}` | Sync time |
-| POST | `/device/timer` | `{"items":[...]}` | Set timers |
-| GET | `/device/timer` | - | Read raw timer bytes from device |
-| POST | `/device/reset` | - | Factory reset |
-| POST | `/display/text` | See below | Display text |
-| POST | `/display/image` | See below | Display image |
-| POST | `/display/gif` | See below | Display GIF |
-| POST | `/display/color` | `{"color":"#FF8800"}` | Set global tint color (CMD_COLOR 0x13/0x01) |
-| GET | `/fonts` | - | List available fonts for `/display/text` |
-| POST | `/countdown` | See below | Countdown timer overlay (0x0a + 0x0F) |
-| POST | `/stopwatch` | See below | Stopwatch overlay (0x10) |
-| POST | `/scoreboard` | See below | Scoreboard overlay (0x11; composite program with scores + clock) |
-| POST | `/debug/timecount` | - | Experimental: raw 39-byte digit-bitmap probe |
+| GET | `/health` | - | Health check (primary BLE/MQTT status, uptime) |
+| GET | `/fonts` | - | List available fonts for `/device/:id/text` |
+| GET | `/devices` | - | Registered devices with per-device connection state |
+| POST | `/scan` | - | BLE scan; returns nearby CoolLEDUX advertisers and their `registered` flag |
+
+### Per-device
+
+`:id` is the normalized MAC returned from `/devices`.
+
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| GET | `/device/:id/info` | - | Device info from BLE |
+| POST | `/device/:id/power` | `{"state":"on"}` | Power on/off |
+| POST | `/device/:id/brightness` | `{"brightness":128}` | Brightness 0-255 |
+| POST | `/device/:id/flip` | `{"mode":"horizontal"}` | none/horizontal/vertical/both |
+| POST | `/device/:id/channel` | `{"channel":0}` | Switch program/channel slot (0-9 verified) |
+| POST | `/device/:id/time` | `{"hour":14,"minute":30,"second":0}` | Sync time |
+| POST | `/device/:id/timer` | `{"items":[...]}` | Set timers |
+| GET | `/device/:id/timer` | - | Read raw timer bytes from device |
+| POST | `/device/:id/reset` | - | Factory reset |
+| POST | `/device/:id/show-id` | `{"on":true}` | 0x1E/0x01 toggle |
+| POST | `/device/:id/remote` | `{"on":false}` | 0x1E/0x02 toggle |
+| POST | `/device/:id/text` | See below | Display text |
+| POST | `/device/:id/image` | See below | Display image |
+| POST | `/device/:id/gif` | See below | Display GIF |
+| POST | `/device/:id/color` | `{"color":"#FF8800"}` | Set global tint color (CMD_COLOR 0x13/0x01) |
+| POST | `/device/:id/color/mode` | `{"mode":10}` | Preset color animation (0x13/0x03) |
+| POST | `/device/:id/color/speed` | `{"speed":5}` | Animation cycle speed (0x13/0x02) |
+| POST | `/device/:id/countdown` | See below | Countdown timer overlay (0x0a + 0x0F) |
+| POST | `/device/:id/stopwatch` | See below | Stopwatch overlay (0x10) |
+| POST | `/device/:id/scoreboard` | See below | Scoreboard overlay (0x11; composite program with scores + clock) |
+| POST | `/device/:id/debug/timecount` | - | Experimental: raw 39-byte digit-bitmap probe |
+
+Unknown `:id` returns 404; an unconfigured registry returns 503.
 
 ## Request/Response Details
 
@@ -34,7 +53,7 @@ Fiber v2, default port `:8080`.
 {"status": "ok", "ble_connected": true, "mqtt_connected": false, "uptime_seconds": 3600}
 ```
 
-### POST /display/text
+### POST /device/:id/text
 
 ```json
 {
@@ -65,7 +84,7 @@ Modes 14+ were probed during development and either silently render nothing or f
 
 `font` is optional. Empty/missing selects the default (`7x13`). Unknown names return HTTP 500 with an explanatory error. `GET /fonts` lists what's registered. `font_size` is currently ignored; each registered font has a fixed cell size.
 
-### POST /display/image
+### POST /device/:id/image
 
 ```json
 {
@@ -95,7 +114,7 @@ Verified working end-to-end: base64 PNG -> decode -> resize -> RGB444 -> LZSS ->
 - `width` of `0` means "fill remaining display width from `x`"; same for `height`.
 - The placement rectangle must fit within the 96x16 display, otherwise the request returns HTTP 500 with an error.
 
-### POST /display/gif
+### POST /device/:id/gif
 
 ```json
 {
@@ -110,11 +129,11 @@ Verified working end-to-end: base64 PNG -> decode -> resize -> RGB444 -> LZSS ->
 }
 ```
 
-`fit`, `x`, `y`, `width`, `height` accept the same values and defaults as `/display/image`.
+`fit`, `x`, `y`, `width`, `height` accept the same values and defaults as `/device/:id/image`.
 
 `raw: true` opts into content type `0x0C` (firmware v30+): the GIF is uploaded verbatim and decoded on-device. `frame_duration` and `fit` are ignored in this mode because the firmware handles timing and scaling. Older firmware ACKs the upload but renders nothing, so only set this when you know the device supports it. Default `false` keeps the frame-by-frame `0x03` path that works on all firmware revisions.
 
-### POST /device/show-id
+### POST /device/:id/show-id
 
 Toggles whether the panel displays its device identifier. Maps to BLE command `0x1E` subtype `0x01`. Hardware-validated on 16x96; affects the default/idle scroll text, not any actively displayed program.
 
@@ -122,15 +141,15 @@ Toggles whether the panel displays its device identifier. Maps to BLE command `0
 {"on": true}
 ```
 
-### POST /device/remote
+### POST /device/:id/remote
 
-Toggles the panel's remote-control mode. Maps to BLE command `0x1E` subtype `0x02`. Same idle-only visibility as `/device/show-id`.
+Toggles the panel's remote-control mode. Maps to BLE command `0x1E` subtype `0x02`. Same idle-only visibility as `/device/:id/show-id`.
 
 ```json
 {"on": false}
 ```
 
-### POST /display/color
+### POST /device/:id/color
 
 Sets the global tint color applied to text/content. Maps to BLE command `0x13` subtype `0x01` (RGB444 packed).
 
@@ -138,7 +157,7 @@ Sets the global tint color applied to text/content. Maps to BLE command `0x13` s
 {"color": "#FF8800"}
 ```
 
-### POST /display/color/mode
+### POST /device/:id/color/mode
 
 Activates one of the built-in color animation presets. Maps to BLE command `0x13` subtype `0x03`. See `docs/specs/protocol-ble.md` "Color Mode and Speed" for the full mode table and the semantic meaning of the per-mode `i3`/`i4`/`i2` parameters the firmware exposes.
 
@@ -148,7 +167,7 @@ Activates one of the built-in color animation presets. Maps to BLE command `0x13
 
 Valid IDs are 1, 2, 5..31. Modes 3 and 4 are rejected with HTTP 400 because the APK resolves them to an empty no-op.
 
-### POST /display/color/speed
+### POST /device/:id/color/speed
 
 Adjusts how fast the active color animation cycles. Maps to BLE command `0x13` subtype `0x02`.
 
@@ -171,26 +190,26 @@ Integer 1-10. No-op unless a color mode is currently active.
 }
 ```
 
-The `name` field is what to pass in `POST /display/text`'s `font` field.
+The `name` field is what to pass in `POST /device/:id/text`'s `font` field.
 
-### POST /countdown, /stopwatch, /scoreboard
+### POST /device/:id/{countdown,stopwatch,scoreboard}
 
 Action-based overlays. Action-specific fields are optional.
 
 ```json
-// POST /countdown
+// POST /device/:id/countdown
 {"action": "show", "hour": 0, "minute": 1, "second": 30, "color": "#00FF00"}
 // actions: "show" (upload program + set + start), "set", "start", "stop", "status"
 ```
 
 ```json
-// POST /stopwatch
+// POST /device/:id/stopwatch
 {"action": "show", "color": "#00FF00"}
 // actions: "show" (upload program + reset + start), "reset", "start", "stop", "status"
 ```
 
 ```json
-// POST /scoreboard
+// POST /device/:id/scoreboard
 {"action": "show", "color": "#FFFFFF"}
 // actions: "show" (upload program + prime scores/clock + start), "set_scores", "set_time", "start", "stop", "status"
 // set_scores payload: {"action":"set_scores","score_a":12,"score_b":7,"total_a":1,"total_b":0}
@@ -206,7 +225,7 @@ For `/scoreboard`, `action: "show"` uploads a different composite: content type 
 
 Clock sequencing: `set_time` while the clock is running silently fails to latch the new value on 16x96 — the firmware only picks up a new time when the clock is stopped. To reset the clock after `show`, send `{"action":"stop"}`, then `{"action":"set_time",...}`, then `{"action":"start"}`. Main scores and period counters via `set_scores` update immediately without this dance.
 
-### GET /device/timer
+### GET /device/:id/timer
 
 Reads the current timer table from the device. Returns the raw device payload (base64-encoded bytes) under `data` without further parsing; callers are responsible for interpreting the byte layout (see `protocol-ble.md` for the timer format).
 
@@ -214,7 +233,7 @@ Reads the current timer table from the device. Returns the raw device payload (b
 {"success": true, "data": "<base64 bytes>"}
 ```
 
-### Debug: POST /debug/timecount
+### Debug: POST /device/:id/debug/timecount
 
 Experimental. Uploads a hex-encoded bitmap in place of the APK's digit bitmap and starts the countdown, for probing the firmware's byte→pixel layout on other device sizes. Not part of the stable API; may be removed.
 

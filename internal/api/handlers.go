@@ -134,15 +134,13 @@ func (h *Handlers) scanTimeout() time.Duration {
 }
 
 // resolve picks the controller for the device addressed by the URL's
-// ":id" path parameter. Legacy routes (no :id) get the primary controller;
-// per-device routes get the matching registry entry's controller. Returns
-// a Fiber HTTP error (routed through the error-handler middleware) when
-// the ID is present but unknown, so handlers can just return err and get
-// a JSON 404 for free.
+// ":id" path parameter. Returns a Fiber HTTP error (routed through the
+// error-handler middleware) when the ID is missing or unknown, so
+// handlers can just return err and get a JSON 400/404 for free.
 func (h *Handlers) resolve(c *fiber.Ctx) (*controller.Controller, error) {
 	id := c.Params("id")
 	if id == "" {
-		return h.ctrl, nil
+		return nil, fiber.NewError(fiber.StatusBadRequest, "device id missing from URL")
 	}
 	if h.reg == nil {
 		return nil, fiber.NewError(fiber.StatusServiceUnavailable, "device registry not configured")

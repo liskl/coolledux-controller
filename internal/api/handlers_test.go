@@ -15,6 +15,7 @@ import (
 	"github.com/liskl/coolledux-controller/internal/config"
 	"github.com/liskl/coolledux-controller/internal/controller"
 	"github.com/liskl/coolledux-controller/internal/protocol"
+	"github.com/liskl/coolledux-controller/internal/registry"
 	"github.com/liskl/coolledux-controller/internal/text"
 )
 
@@ -31,7 +32,8 @@ type testRig struct {
 
 // newTestRig builds a Server with a stubbed BLE client. The controller is
 // marked connected so handlers that gate on IsConnected proceed; all outbound
-// BLE writes are silently accepted unless overridden.
+// BLE writes are silently accepted unless overridden. The registry is
+// populated with the primary device so /device/:id/... routes resolve.
 func newTestRig(t *testing.T) *testRig {
 	t.Helper()
 	cfg := testConfig()
@@ -46,7 +48,19 @@ func newTestRig(t *testing.T) *testRig {
 	})
 	ctrl.OverrideStateForTest(controller.StateConnected)
 
-	srv := NewServer(ctrl, cfg, logger, nil)
+	reg := registry.New()
+	if err := reg.Add(&registry.Entry{
+		ID:         testPrimaryID,
+		Name:       "primary",
+		MAC:        cfg.BLE.DeviceMAC,
+		Client:     bleClient,
+		Transport:  transport,
+		Controller: ctrl,
+	}); err != nil {
+		t.Fatalf("registry add: %v", err)
+	}
+
+	srv := NewServer(ctrl, cfg, logger, reg)
 	return &testRig{
 		srv:       srv,
 		bleClient: bleClient,
@@ -119,7 +133,7 @@ func TestListFonts(t *testing.T) {
 
 func TestSetChannel_InvalidBody(t *testing.T) {
 	srv := testServer(t)
-	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/device/channel", `garbage`)
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/channel", `garbage`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
 	}
@@ -129,7 +143,7 @@ func TestSetChannel_Disconnected(t *testing.T) {
 	srv := testServer(t)
 	// With the default (disconnected) controller, the request parses but the
 	// BLE send times out/fails, yielding 500.
-	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/device/channel", `{"channel":3}`)
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/channel", `{"channel":3}`)
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", resp.StatusCode)
 	}
@@ -138,7 +152,7 @@ func TestSetChannel_Disconnected(t *testing.T) {
 func TestSetChannel_Connected(t *testing.T) {
 	rig := newTestRig(t)
 	go rig.transport.InjectResponseForTest(fakeOK(protocol.RESPONSE_TYPE_CHANNEL))
-	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/device/channel", `{"channel":2}`)
+	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/channel", `{"channel":2}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
 	}
@@ -158,7 +172,7 @@ func TestGetTimers_Connected(t *testing.T) {
 	// GetTimers just returns the raw response frame; a minimal framed payload
 	// is fine.
 	go rig.transport.InjectResponseForTest(fakeOK(protocol.RESPONSE_TYPE_GET_TIMER))
-	resp, body := doJSONRequest(t, rig.srv, http.MethodGet, "/device/timer", "")
+	resp, body := doJSONRequest(t, rig.srv, http.MethodGet, "/device/010000fba416/timer", "")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
 	}
@@ -178,7 +192,7 @@ func TestGetTimers_Disconnected(t *testing.T) {
 	// With no response injected and BLE disconnected, the SendAndWait fails
 	// almost immediately. Use a short request to keep the test quick.
 	srv := testServer(t)
-	resp, _ := doJSONRequest(t, srv, http.MethodGet, "/device/timer", "")
+	resp, _ := doJSONRequest(t, srv, http.MethodGet, "/device/010000fba416/timer", "")
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", resp.StatusCode)
 	}
@@ -188,7 +202,7 @@ func TestGetTimers_Disconnected(t *testing.T) {
 
 func TestCountdownProbe_InvalidBody(t *testing.T) {
 	srv := testServer(t)
-	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/debug/timecount", `nope`)
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/debug/timecount", `nope`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
 	}
@@ -197,7 +211,7 @@ func TestCountdownProbe_InvalidBody(t *testing.T) {
 func TestCountdownProbe_WrongLengthHex(t *testing.T) {
 	srv := testServer(t)
 	// 4 hex chars, should be 78.
-	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/debug/timecount",
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/debug/timecount",
 		`{"probe_hex":"abcd","color":"#FF0000"}`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -208,7 +222,7 @@ func TestCountdownProbe_InvalidHexChars(t *testing.T) {
 	srv := testServer(t)
 	// 78 chars but with non-hex "zz" near the end.
 	hex := strings.Repeat("ab", 38) + "zz"
-	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/debug/timecount",
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/debug/timecount",
 		`{"probe_hex":"`+hex+`","color":""}`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -218,7 +232,7 @@ func TestCountdownProbe_InvalidHexChars(t *testing.T) {
 func TestCountdownProbe_InvalidColor(t *testing.T) {
 	srv := testServer(t)
 	hex := strings.Repeat("00", 39)
-	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/debug/timecount",
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/debug/timecount",
 		`{"probe_hex":"`+hex+`","color":"not-a-color"}`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -229,7 +243,7 @@ func TestCountdownProbe_Disconnected(t *testing.T) {
 	// Disconnected controller: CountdownProbe returns "device not connected".
 	srv := testServer(t)
 	hex := strings.Repeat("00", 39)
-	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/debug/timecount",
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/debug/timecount",
 		`{"probe_hex":"`+hex+`","color":"#00FF00"}`)
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", resp.StatusCode)
@@ -261,7 +275,7 @@ func TestCountdownProbe_Connected(t *testing.T) {
 	// Probe bitmap: pattern we can search for in the chunked output. Use
 	// 0xAA repeated for easy identification.
 	hex := strings.Repeat("aa", 39)
-	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/debug/timecount",
+	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/debug/timecount",
 		`{"probe_hex":"`+hex+`","color":"#00FF00"}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
@@ -285,7 +299,7 @@ func TestCountdownProbe_Connected(t *testing.T) {
 
 func TestCountdown_InvalidBody(t *testing.T) {
 	srv := testServer(t)
-	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/countdown", `not json`)
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/countdown", `not json`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
 	}
@@ -293,7 +307,7 @@ func TestCountdown_InvalidBody(t *testing.T) {
 
 func TestCountdown_UnknownAction(t *testing.T) {
 	srv := testServer(t)
-	resp, body := doJSONRequest(t, srv, http.MethodPost, "/countdown", `{"action":"nope"}`)
+	resp, body := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/countdown", `{"action":"nope"}`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", resp.StatusCode, body)
 	}
@@ -314,7 +328,7 @@ func TestCountdown_FireAndForget(t *testing.T) {
 		t.Run(action, func(t *testing.T) {
 			rig := newTestRig(t)
 			body := `{"action":"` + action + `","hour":1,"minute":30,"second":0}`
-			resp, respBody := doJSONRequest(t, rig.srv, http.MethodPost, "/countdown", body)
+			resp, respBody := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/countdown", body)
 			if resp.StatusCode != http.StatusOK {
 				t.Fatalf("expected 200, got %d: %s", resp.StatusCode, respBody)
 			}
@@ -332,7 +346,7 @@ func TestCountdown_FireAndForget(t *testing.T) {
 func TestCountdown_FireAndForget_Disconnected(t *testing.T) {
 	// Disconnected controller: sendControl returns "device not connected".
 	srv := testServer(t)
-	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/countdown",
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/countdown",
 		`{"action":"start"}`)
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", resp.StatusCode)
@@ -341,7 +355,7 @@ func TestCountdown_FireAndForget_Disconnected(t *testing.T) {
 
 func TestCountdown_ShowInvalidColor(t *testing.T) {
 	srv := testServer(t)
-	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/countdown",
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/countdown",
 		`{"action":"show","hour":0,"minute":1,"second":30,"color":"bogus"}`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -360,7 +374,7 @@ func TestCountdown_Show_Connected(t *testing.T) {
 		}
 	}()
 
-	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/countdown",
+	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/countdown",
 		`{"action":"show","hour":0,"minute":1,"second":0,"color":"#FF00FF"}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
@@ -376,7 +390,7 @@ func TestCountdown_Show_DefaultColor_Connected(t *testing.T) {
 			rig.transport.InjectResponseForTest(fakeOK(protocol.RESPONSE_TYPE_PROGRAM_DATA))
 		}
 	}()
-	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/countdown",
+	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/countdown",
 		`{"action":"show","hour":0,"minute":0,"second":5}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
@@ -387,7 +401,7 @@ func TestCountdown_Show_DefaultColor_Connected(t *testing.T) {
 
 func TestStopwatch_InvalidBody(t *testing.T) {
 	srv := testServer(t)
-	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/stopwatch", `not json`)
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/stopwatch", `not json`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
 	}
@@ -395,7 +409,7 @@ func TestStopwatch_InvalidBody(t *testing.T) {
 
 func TestStopwatch_UnknownAction(t *testing.T) {
 	srv := testServer(t)
-	resp, body := doJSONRequest(t, srv, http.MethodPost, "/stopwatch", `{"action":"flail"}`)
+	resp, body := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/stopwatch", `{"action":"flail"}`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", resp.StatusCode, body)
 	}
@@ -405,7 +419,7 @@ func TestStopwatch_FireAndForget(t *testing.T) {
 	for _, action := range []string{"status", "reset", "start", "stop"} {
 		t.Run(action, func(t *testing.T) {
 			rig := newTestRig(t)
-			resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/stopwatch",
+			resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/stopwatch",
 				`{"action":"`+action+`"}`)
 			if resp.StatusCode != http.StatusOK {
 				t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
@@ -416,7 +430,7 @@ func TestStopwatch_FireAndForget(t *testing.T) {
 
 func TestStopwatch_Disconnected(t *testing.T) {
 	srv := testServer(t)
-	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/stopwatch", `{"action":"start"}`)
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/stopwatch", `{"action":"start"}`)
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", resp.StatusCode)
 	}
@@ -424,7 +438,7 @@ func TestStopwatch_Disconnected(t *testing.T) {
 
 func TestStopwatch_ShowInvalidColor(t *testing.T) {
 	srv := testServer(t)
-	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/stopwatch",
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/stopwatch",
 		`{"action":"show","color":"notacolor"}`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -440,7 +454,7 @@ func TestStopwatch_Show_Connected(t *testing.T) {
 		}
 	}()
 
-	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/stopwatch",
+	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/stopwatch",
 		`{"action":"show","color":"#00FF00"}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
@@ -455,7 +469,7 @@ func TestStopwatch_Show_DefaultColor_Connected(t *testing.T) {
 			rig.transport.InjectResponseForTest(fakeOK(protocol.RESPONSE_TYPE_PROGRAM_DATA))
 		}
 	}()
-	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/stopwatch",
+	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/stopwatch",
 		`{"action":"show"}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
@@ -466,7 +480,7 @@ func TestStopwatch_Show_DefaultColor_Connected(t *testing.T) {
 
 func TestScoreboard_InvalidBody(t *testing.T) {
 	srv := testServer(t)
-	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/scoreboard", `not json`)
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/scoreboard", `not json`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
 	}
@@ -474,7 +488,7 @@ func TestScoreboard_InvalidBody(t *testing.T) {
 
 func TestScoreboard_UnknownAction(t *testing.T) {
 	srv := testServer(t)
-	resp, body := doJSONRequest(t, srv, http.MethodPost, "/scoreboard", `{"action":"wat"}`)
+	resp, body := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/scoreboard", `{"action":"wat"}`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", resp.StatusCode, body)
 	}
@@ -494,7 +508,7 @@ func TestScoreboard_FireAndForget(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			rig := newTestRig(t)
-			resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/scoreboard", tc.body)
+			resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/scoreboard", tc.body)
 			if resp.StatusCode != http.StatusOK {
 				t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
 			}
@@ -504,7 +518,7 @@ func TestScoreboard_FireAndForget(t *testing.T) {
 
 func TestScoreboard_Disconnected(t *testing.T) {
 	srv := testServer(t)
-	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/scoreboard",
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/scoreboard",
 		`{"action":"set_scores","score_a":1,"score_b":2}`)
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", resp.StatusCode)
@@ -513,7 +527,7 @@ func TestScoreboard_Disconnected(t *testing.T) {
 
 func TestScoreboard_ShowInvalidColor(t *testing.T) {
 	srv := testServer(t)
-	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/scoreboard",
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/scoreboard",
 		`{"action":"show","color":"notacolor"}`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -529,7 +543,7 @@ func TestScoreboard_Show_Connected(t *testing.T) {
 		}
 	}()
 
-	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/scoreboard",
+	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/scoreboard",
 		`{"action":"show","color":"#FF8800"}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
@@ -544,7 +558,7 @@ func TestScoreboard_Show_DefaultColor_Connected(t *testing.T) {
 			rig.transport.InjectResponseForTest(fakeOK(protocol.RESPONSE_TYPE_PROGRAM_DATA))
 		}
 	}()
-	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/scoreboard",
+	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/scoreboard",
 		`{"action":"show"}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
@@ -565,7 +579,7 @@ func TestSetChannel_ContextCancel(t *testing.T) {
 	// Rather than actually waiting, assert that repeated calls without
 	// responses produce 500s consistently.
 	start := time.Now()
-	resp, _ := doJSONRequest(t, rig.srv, http.MethodPost, "/device/channel", `{"channel":1}`)
+	resp, _ := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/channel", `{"channel":1}`)
 	elapsed := time.Since(start)
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("expected 500 on timeout, got %d", resp.StatusCode)

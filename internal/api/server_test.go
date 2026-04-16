@@ -32,14 +32,14 @@ func testConfig() *config.Config {
 	}
 }
 
+// testPrimaryID is the registry ID derived from the test config's MAC
+// (01:00:00:FB:A4:16). Tests hit per-device routes via "/device/" +
+// testPrimaryID + "/..." since legacy unprefixed routes no longer exist.
+const testPrimaryID = "010000fba416"
+
 func testServer(t *testing.T) *Server {
 	t.Helper()
-	cfg := testConfig()
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	bleClient := ble.NewClient(logger)
-	transport := ble.NewTransport(bleClient, logger)
-	ctrl := controller.New(bleClient, transport, cfg, logger)
-	srv := NewServer(ctrl, cfg, logger, nil)
+	srv, _ := testServerWithRegistry(t)
 	return srv
 }
 
@@ -109,7 +109,7 @@ func TestSetPower_ValidOn(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`{"state":"on"}`)
-	req, err := http.NewRequest(http.MethodPost, "/device/power", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/power", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestSetPower_InvalidState(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`{"state":"maybe"}`)
-	req, err := http.NewRequest(http.MethodPost, "/device/power", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/power", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestSetPower_InvalidBody(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`not json`)
-	req, err := http.NewRequest(http.MethodPost, "/device/power", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/power", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestDisplayText_InvalidBody(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`not json at all`)
-	req, err := http.NewRequest(http.MethodPost, "/display/text", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/text", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestDisplayText_InvalidMode(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`{"text":"hi","mode":"bad","speed":5,"color":"#FF0000","font_size":16}`)
-	req, err := http.NewRequest(http.MethodPost, "/display/text", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/text", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestDisplayText_InvalidColor(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`{"text":"hi","mode":"static","speed":5,"color":"nope","font_size":16}`)
-	req, err := http.NewRequest(http.MethodPost, "/display/text", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/text", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestDisplayImage_InvalidBase64(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`{"image_base64":"!!!not-b64!!!","mode":"static"}`)
-	req, err := http.NewRequest(http.MethodPost, "/display/image", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/image", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestDisplayGIF_InvalidBase64(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`{"gif_base64":"!!!bad!!!","frame_duration":100}`)
-	req, err := http.NewRequest(http.MethodPost, "/display/gif", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/gif", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -323,7 +323,7 @@ func TestSetBrightness_InvalidBody(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`garbage`)
-	req, err := http.NewRequest(http.MethodPost, "/device/brightness", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/brightness", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestSetFlip_InvalidBody(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`garbage`)
-	req, err := http.NewRequest(http.MethodPost, "/device/flip", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/flip", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestSetFlip_InvalidMode(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`{"mode":"diagonal"}`)
-	req, err := http.NewRequest(http.MethodPost, "/device/flip", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/flip", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -385,7 +385,7 @@ func TestSetFlip_InvalidMode(t *testing.T) {
 func TestDeviceInfo_Disconnected(t *testing.T) {
 	srv := testServer(t)
 
-	req, err := http.NewRequest(http.MethodGet, "/device/info", nil)
+	req, err := http.NewRequest(http.MethodGet, "/device/010000fba416/info", nil)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -416,7 +416,7 @@ func TestSyncTime_InvalidBody(t *testing.T) {
 	// SyncTime now accepts empty/invalid bodies and defaults to time.Now().
 	// With a disconnected BLE client, it falls through to a 500 (BLE send error).
 	body := strings.NewReader(`garbage`)
-	req, err := http.NewRequest(http.MethodPost, "/device/time", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/time", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -437,7 +437,7 @@ func TestSetTimers_InvalidBody(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`garbage`)
-	req, err := http.NewRequest(http.MethodPost, "/device/timer", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/timer", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -458,7 +458,7 @@ func TestDisplayImage_InvalidBody(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`not json`)
-	req, err := http.NewRequest(http.MethodPost, "/display/image", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/image", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -479,7 +479,7 @@ func TestDisplayGIF_InvalidBody(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`not json`)
-	req, err := http.NewRequest(http.MethodPost, "/display/gif", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/gif", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -501,7 +501,7 @@ func TestDisplayImage_InvalidMode(t *testing.T) {
 
 	// Valid base64 but invalid mode.
 	body := strings.NewReader(`{"image_base64":"AAAA","mode":"invalid_mode"}`)
-	req, err := http.NewRequest(http.MethodPost, "/display/image", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/image", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -521,7 +521,7 @@ func TestDisplayImage_InvalidMode(t *testing.T) {
 func TestResetDevice_Disconnected(t *testing.T) {
 	srv := testServer(t)
 
-	req, err := http.NewRequest(http.MethodPost, "/device/reset", nil)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/reset", nil)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -550,7 +550,7 @@ func TestSetBrightness_ValidBody_Disconnected(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`{"brightness":128}`)
-	req, err := http.NewRequest(http.MethodPost, "/device/brightness", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/brightness", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -580,7 +580,7 @@ func TestSetFlip_ValidBody_Disconnected(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`{"mode":"horizontal"}`)
-	req, err := http.NewRequest(http.MethodPost, "/device/flip", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/flip", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -610,7 +610,7 @@ func TestSyncTime_ValidBody_Disconnected(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`{"hour":12,"minute":30,"second":45}`)
-	req, err := http.NewRequest(http.MethodPost, "/device/time", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/time", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -640,7 +640,7 @@ func TestSetTimers_ValidBody_Disconnected(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`{"items":[{"enable":true,"hour":8,"minute":0,"days":127,"power_on":true}]}`)
-	req, err := http.NewRequest(http.MethodPost, "/device/timer", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/timer", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -670,7 +670,7 @@ func TestDisplayText_ValidBody_Disconnected(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`{"text":"hello","mode":"static","speed":5,"color":"#FF0000","font_size":16}`)
-	req, err := http.NewRequest(http.MethodPost, "/display/text", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/text", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -701,7 +701,7 @@ func TestDisplayGIF_InvalidGIFData_Disconnected(t *testing.T) {
 
 	// Valid base64 but the controller will fail to decode this as a real GIF.
 	body := strings.NewReader(`{"gif_base64":"AAAA","frame_duration":100}`)
-	req, err := http.NewRequest(http.MethodPost, "/display/gif", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/gif", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -740,7 +740,7 @@ func TestSetPower_ValidOff_Disconnected(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`{"state":"off"}`)
-	req, err := http.NewRequest(http.MethodPost, "/device/power", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/power", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -762,7 +762,7 @@ func TestDisplayImage_ValidMode_Disconnected(t *testing.T) {
 
 	// Valid base64 that decodes to something, but not a real image.
 	body := strings.NewReader(`{"image_base64":"AAAA","mode":"static"}`)
-	req, err := http.NewRequest(http.MethodPost, "/display/image", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/image", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -811,11 +811,20 @@ func TestRecoveryMiddleware_PanicHandler(t *testing.T) {
 	cfg := testConfig()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ctrl := controller.New(nil, nil, cfg, logger)
-	srv := NewServer(ctrl, cfg, logger, nil)
+	reg := registry.New()
+	if err := reg.Add(&registry.Entry{
+		ID:         testPrimaryID,
+		Name:       "primary",
+		MAC:        cfg.BLE.DeviceMAC,
+		Controller: ctrl,
+	}); err != nil {
+		t.Fatalf("registry add: %v", err)
+	}
+	srv := NewServer(ctrl, cfg, logger, reg)
 
 	// SetPower with valid body on a nil-transport controller will panic.
 	body := strings.NewReader(`{"state":"on"}`)
-	req, err := http.NewRequest(http.MethodPost, "/device/power", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/power", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -849,7 +858,7 @@ func TestSetColor_ValidBody_Disconnected(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`{"color":"#FF8800"}`)
-	req, err := http.NewRequest(http.MethodPost, "/display/color", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/color", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -871,7 +880,7 @@ func TestSetColor_InvalidColor(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`{"color":"not-a-color"}`)
-	req, err := http.NewRequest(http.MethodPost, "/display/color", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/color", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -892,7 +901,7 @@ func TestSetColor_InvalidBody(t *testing.T) {
 	srv := testServer(t)
 
 	body := strings.NewReader(`{bad json`)
-	req, err := http.NewRequest(http.MethodPost, "/display/color", body)
+	req, err := http.NewRequest(http.MethodPost, "/device/010000fba416/color", body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -912,7 +921,7 @@ func TestSetColor_InvalidBody(t *testing.T) {
 func TestSetShowDeviceID_Disconnected(t *testing.T) {
 	srv := testServer(t)
 	for _, body := range []string{`{"on":true}`, `{"on":false}`} {
-		req, _ := http.NewRequest(http.MethodPost, "/device/show-id", strings.NewReader(body))
+		req, _ := http.NewRequest(http.MethodPost, "/device/010000fba416/show-id", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := srv.app.Test(req, -1)
 		if err != nil {
@@ -927,7 +936,7 @@ func TestSetShowDeviceID_Disconnected(t *testing.T) {
 
 func TestSetShowDeviceID_InvalidBody(t *testing.T) {
 	srv := testServer(t)
-	req, _ := http.NewRequest(http.MethodPost, "/device/show-id", strings.NewReader("not json"))
+	req, _ := http.NewRequest(http.MethodPost, "/device/010000fba416/show-id", strings.NewReader("not json"))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := srv.app.Test(req, -1)
 	if err != nil {
@@ -941,7 +950,7 @@ func TestSetShowDeviceID_InvalidBody(t *testing.T) {
 
 func TestSetRemote_Disconnected(t *testing.T) {
 	srv := testServer(t)
-	req, _ := http.NewRequest(http.MethodPost, "/device/remote", strings.NewReader(`{"on":true}`))
+	req, _ := http.NewRequest(http.MethodPost, "/device/010000fba416/remote", strings.NewReader(`{"on":true}`))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := srv.app.Test(req, -1)
 	if err != nil {
@@ -1018,19 +1027,6 @@ func TestListDevices_Registered(t *testing.T) {
 	}
 }
 
-func TestListDevices_NoRegistry(t *testing.T) {
-	srv := testServer(t)
-	req, _ := http.NewRequest(http.MethodGet, "/devices", nil)
-	resp, err := srv.app.Test(req, -1)
-	if err != nil {
-		t.Fatalf("request: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want 503", resp.StatusCode)
-	}
-}
-
 func TestPerDeviceRoute_KnownID(t *testing.T) {
 	srv, reg := testServerWithRegistry(t)
 	id := reg.Primary().ID
@@ -1058,33 +1054,6 @@ func TestPerDeviceRoute_UnknownID(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", resp.StatusCode)
-	}
-}
-
-func TestPerDeviceRoute_NoRegistry(t *testing.T) {
-	srv := testServer(t)
-	// Legacy srv has no registry — per-device routes should 503.
-	req, _ := http.NewRequest(http.MethodGet, "/device/anything/info", nil)
-	resp, err := srv.app.Test(req, -1)
-	if err != nil {
-		t.Fatalf("request: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want 503", resp.StatusCode)
-	}
-}
-
-func TestScanDevices_NoRegistry(t *testing.T) {
-	srv := testServer(t)
-	req, _ := http.NewRequest(http.MethodPost, "/scan", nil)
-	resp, err := srv.app.Test(req, -1)
-	if err != nil {
-		t.Fatalf("request: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want 503", resp.StatusCode)
 	}
 }
 

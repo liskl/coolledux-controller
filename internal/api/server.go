@@ -47,47 +47,15 @@ func NewServer(ctrl *controller.Controller, cfg *config.Config, logger *slog.Log
 	h.reg = reg
 	h.scanTO = cfg.BLE.ScanTimeout
 
-	// Health & info
+	// Service-level endpoints.
 	app.Get("/health", h.HealthCheck)
-	app.Get("/device/info", h.GetDeviceInfo)
-
-	// Multi-device registry endpoints
+	app.Get("/fonts", h.ListFonts)
 	app.Get("/devices", h.ListDevices)
 	app.Post("/scan", h.ScanDevices)
 
-	// Device control
-	app.Post("/device/power", h.SetPower)
-	app.Post("/device/brightness", h.SetBrightness)
-	app.Post("/device/flip", h.SetFlip)
-	app.Post("/device/channel", h.SetChannel)
-	app.Post("/device/time", h.SyncTime)
-	app.Post("/device/timer", h.SetTimers)
-	app.Get("/device/timer", h.GetTimers)
-	app.Post("/device/reset", h.ResetDevice)
-	app.Post("/device/show-id", h.SetShowDeviceID)
-	app.Post("/device/remote", h.SetRemote)
-
-	// Display
-	app.Post("/display/text", h.DisplayText)
-	app.Post("/display/image", h.DisplayImage)
-	app.Post("/display/gif", h.DisplayGIF)
-	app.Post("/display/color", h.SetColor)
-	app.Post("/display/color/mode", h.SetColorMode)
-	app.Post("/display/color/speed", h.SetColorSpeed)
-	app.Get("/fonts", h.ListFonts)
-
-	// Overlays
-	app.Post("/countdown", h.Countdown)
-	app.Post("/stopwatch", h.Stopwatch)
-	app.Post("/scoreboard", h.Scoreboard)
-	app.Post("/debug/timecount", h.CountdownProbeHandler)
-
-	// Per-device routes. Every legacy device route above has a twin here
-	// under /device/:id/... that targets the requested MAC instead of the
-	// primary. The resolve helper in Handlers reads :id and dispatches;
-	// legacy routes reuse the same handler with no :id set so they still
-	// hit the primary. Once these are hardware-verified, a follow-up
-	// bead removes the legacy routes.
+	// Per-device routes. Every device-addressed action is keyed by the
+	// registry ID (normalized MAC) in the URL; no "primary device"
+	// fallback routes exist.
 	app.Get("/device/:id/info", h.GetDeviceInfo)
 	app.Post("/device/:id/power", h.SetPower)
 	app.Post("/device/:id/brightness", h.SetBrightness)

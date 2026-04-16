@@ -74,7 +74,7 @@ Every command is built by appending the command byte and payload to a list, then
 | `0x0C` | Set mirror (boolean) | `[0x00]` off / `[0x01]` on | `getSetMirror` | 4427 | verified |
 | `0x0C` | Set rotate (0..3) | `[mode:1]` | `setRotate` | 4861 | verified |
 | `0x0D` | Check password | `[random:1] { digit ^ random } * n [xorChecksum:1]` | `getCheckPasswordData` | 2770 | verified (check path); see "Password Commands" |
-| `0x0E` | Set password | `[random:1] { digit ^ random } * n [xorChecksum:1]` | `getSetPasswordData` | 4438 | builder verified; set-path untested on hardware (risk: lockout) |
+| `0x0E` | Set password | `[random:1] { digit ^ random } * n [xorChecksum:1]` | `getSetPasswordData` | 4438 | verified (hardware round-trip); see "Password Commands" |
 | `0x0F` | Countdown status | `[0x01]` | `getCountDownStatus` | 2811 | verified |
 | `0x0F` | Countdown set value | `[0x02][hour:2 BE][min:2 BE][sec:2 BE]` (each as uint16) | `getCountDownReset` | 2789 | verified |
 | `0x0F` | Countdown start/stop | `[0x03][0x01 or 0x00]` | `getCountDownStartOrStop` | 2799 | verified |
@@ -524,7 +524,7 @@ No CRC, no BLE-header wrapper. Response shape is `[cmd, status]` where `status =
 - Concrete round-trip: `123456` → 200 verified; `abcdef`, `654321` → 401 rejected; any wrong length → 401 rejected.
 - Case-insensitive: `ABCDEF` and `abcdef` produce identical on-wire packets and identical device responses (both rejected in the same run), consistent with parsing each char as a single hex digit regardless of case.
 - Before a password was stored on this panel, **4- and 6-character hex inputs of any value returned 200** and other lengths returned 401. Reading: the firmware's length gate runs first (user-PIN is 4 chars, admin-PIN is 6), and with no stored value the comparison is a no-op. Once a 6-character password was set via the APK, only that exact value (`123456`) passed.
-- The set path (`0x0E`) is implicitly validated — the user set the password via the APK, and our check path decoded the same nibbles the APK's set path encoded. If you're writing a new password via `/device/:id/password/set`, remember the value: there is no recovery mechanism on the device side.
+- The set path (`0x0E`) is also directly verified: wrote `654321` via `POST /device/:id/password/set`, then `check 654321` returned 200 and `check 123456` (the previous password) returned 401. State transition is atomic from the client's perspective — the set response arrives before the next check sees the new value. If you're writing a new password via `/device/:id/password/set`, remember the value: there is no recovery mechanism on the device side.
 
 ## Drive State (`0x1C/0x01`, `0x1C/0x02`) — not supported on 16x96
 

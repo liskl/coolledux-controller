@@ -11,6 +11,7 @@ import (
 	"github.com/liskl/coolledux-controller/internal/ble"
 	"github.com/liskl/coolledux-controller/internal/config"
 	"github.com/liskl/coolledux-controller/internal/controller"
+	"github.com/liskl/coolledux-controller/internal/registry"
 )
 
 func testConfig() *config.Config {
@@ -38,7 +39,7 @@ func testServer(t *testing.T) *Server {
 	bleClient := ble.NewClient(logger)
 	transport := ble.NewTransport(bleClient, logger)
 	ctrl := controller.New(bleClient, transport, cfg, logger)
-	srv := NewServer(ctrl, cfg, logger)
+	srv := NewServer(ctrl, cfg, logger, nil)
 	return srv
 }
 
@@ -786,7 +787,7 @@ func TestCORSMiddleware_MultipleOrigins(t *testing.T) {
 	bleClient := ble.NewClient(logger)
 	transport := ble.NewTransport(bleClient, logger)
 	ctrl := controller.New(bleClient, transport, cfg, logger)
-	srv := NewServer(ctrl, cfg, logger)
+	srv := NewServer(ctrl, cfg, logger, nil)
 
 	req, err := http.NewRequest(http.MethodGet, "/health", nil)
 	if err != nil {
@@ -810,7 +811,7 @@ func TestRecoveryMiddleware_PanicHandler(t *testing.T) {
 	cfg := testConfig()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ctrl := controller.New(nil, nil, cfg, logger)
-	srv := NewServer(ctrl, cfg, logger)
+	srv := NewServer(ctrl, cfg, logger, nil)
 
 	// SetPower with valid body on a nil-transport controller will panic.
 	body := strings.NewReader(`{"state":"on"}`)
@@ -952,6 +953,97 @@ func TestSetRemote_Disconnected(t *testing.T) {
 	}
 }
 
+// testServerWithRegistry spins up a Server where the registry is populated
+// with one disconnected entry. Lets us exercise /devices and /scan without
+// real BLE hardware (scan call will fail cleanly).
+func testServerWithRegistry(t *testing.T) (*Server, *registry.Registry) {
+	t.Helper()
+	cfg := testConfig()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	bleClient := ble.NewClient(logger)
+	transport := ble.NewTransport(bleClient, logger)
+	ctrl := controller.New(bleClient, transport, cfg, logger)
+
+	reg := registry.New()
+	entry := &registry.Entry{
+		ID:         "010000fba416",
+		Name:       "primary",
+		MAC:        "01:00:00:FB:A4:16",
+		Client:     bleClient,
+		Transport:  transport,
+		Controller: ctrl,
+	}
+	if err := reg.Add(entry); err != nil {
+		t.Fatalf("registry add: %v", err)
+	}
+
+	return NewServer(ctrl, cfg, logger, reg), reg
+}
+
+func TestListDevices_Registered(t *testing.T) {
+	srv, _ := testServerWithRegistry(t)
+	req, _ := http.NewRequest(http.MethodGet, "/devices", nil)
+	resp, err := srv.app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	var body struct {
+		Success bool `json:"success"`
+		Devices []struct {
+			ID        string `json:"id"`
+			Name      string `json:"name"`
+			MAC       string `json:"mac"`
+			Connected bool   `json:"connected"`
+		} `json:"devices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !body.Success {
+		t.Error("success = false")
+	}
+	if len(body.Devices) != 1 {
+		t.Fatalf("devices len = %d, want 1", len(body.Devices))
+	}
+	if body.Devices[0].ID != "010000fba416" {
+		t.Errorf("id = %q, want 010000fba416", body.Devices[0].ID)
+	}
+	if body.Devices[0].Connected {
+		t.Error("connected = true, want false (no real BLE)")
+	}
+}
+
+func TestListDevices_NoRegistry(t *testing.T) {
+	srv := testServer(t)
+	req, _ := http.NewRequest(http.MethodGet, "/devices", nil)
+	resp, err := srv.app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", resp.StatusCode)
+	}
+}
+
+func TestScanDevices_NoRegistry(t *testing.T) {
+	srv := testServer(t)
+	req, _ := http.NewRequest(http.MethodPost, "/scan", nil)
+	resp, err := srv.app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", resp.StatusCode)
+	}
+}
+
 func TestCORSMiddleware_EmptyOrigins(t *testing.T) {
 	cfg := testConfig()
 	cfg.API.CORSOrigins = []string{}
@@ -959,7 +1051,7 @@ func TestCORSMiddleware_EmptyOrigins(t *testing.T) {
 	bleClient := ble.NewClient(logger)
 	transport := ble.NewTransport(bleClient, logger)
 	ctrl := controller.New(bleClient, transport, cfg, logger)
-	srv := NewServer(ctrl, cfg, logger)
+	srv := NewServer(ctrl, cfg, logger, nil)
 
 	req, err := http.NewRequest(http.MethodGet, "/health", nil)
 	if err != nil {

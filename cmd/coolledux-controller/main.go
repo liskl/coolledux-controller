@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/liskl/coolledux-controller/internal/api"
+	"github.com/liskl/coolledux-controller/internal/ble"
 	"github.com/liskl/coolledux-controller/internal/config"
 	"github.com/liskl/coolledux-controller/internal/mqtt"
 	"github.com/liskl/coolledux-controller/internal/registry"
@@ -34,8 +35,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Build the device registry from config. Stage-2 work will add
-	// startup scan to auto-populate when no devices are explicitly set.
+	// Build the device registry from config, and optionally augment it
+	// with a startup BLE scan so users who haven't pinned MACs still
+	// get their panels discovered automatically.
 	reg := registry.New()
 	devices := cfg.BLE.ResolveDevices()
 	for _, dev := range devices {
@@ -43,6 +45,27 @@ func main() {
 		if err := reg.Add(entry); err != nil {
 			logger.Warn("skipping duplicate device", "mac", dev.MAC, "error", err)
 			continue
+		}
+	}
+
+	if cfg.BLE.ScanOnStartupEnabled() {
+		logger.Info("scanning for CoolLEDUX devices at startup", "timeout", cfg.BLE.ScanTimeout)
+		results, err := ble.Scan(ctx, "CoolLEDUX", cfg.BLE.ScanTimeout, logger)
+		if err != nil {
+			logger.Warn("startup scan failed, continuing with configured devices only", "error", err)
+		}
+		for _, r := range results {
+			dev := config.DeviceConfig{Name: r.Name, MAC: r.MAC}
+			if _, exists := reg.Get(dev.ID()); exists {
+				// Already registered from static config.
+				continue
+			}
+			entry := registry.BuildEntry(dev, cfg, logger)
+			if err := reg.Add(entry); err != nil {
+				logger.Warn("skipping scanned device", "mac", r.MAC, "error", err)
+				continue
+			}
+			logger.Info("registered scanned device", "id", entry.ID, "mac", entry.MAC, "name", entry.Name)
 		}
 	}
 
@@ -86,7 +109,7 @@ func main() {
 
 	var apiServer *api.Server
 	if primary != nil {
-		apiServer = api.NewServer(primary.Controller, cfg, logger)
+		apiServer = api.NewServer(primary.Controller, cfg, logger, reg)
 		go func() {
 			if err := apiServer.Start(); err != nil {
 				logger.Error("API server error", "error", err)

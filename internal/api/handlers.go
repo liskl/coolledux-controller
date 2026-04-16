@@ -10,16 +10,21 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/liskl/coolledux-controller/internal/ble"
+	"github.com/liskl/coolledux-controller/internal/config"
 	"github.com/liskl/coolledux-controller/internal/controller"
 	ledimage "github.com/liskl/coolledux-controller/internal/image"
 	"github.com/liskl/coolledux-controller/internal/models"
 	"github.com/liskl/coolledux-controller/internal/protocol"
+	"github.com/liskl/coolledux-controller/internal/registry"
 	"github.com/liskl/coolledux-controller/internal/text"
 )
 
 // Handlers holds the dependencies for all HTTP route handlers.
 type Handlers struct {
 	ctrl      *controller.Controller
+	reg       *registry.Registry // Optional: backs /devices and /scan.
+	scanTO    time.Duration      // Overrides the default scan timeout when set.
 	startTime time.Time
 	logger    *slog.Logger
 }
@@ -42,6 +47,90 @@ func (h *Handlers) HealthCheck(c *fiber.Ctx) error {
 		MQTTConnected: false, // MQTT integration wired separately
 		UptimeSeconds: int64(time.Since(h.startTime).Seconds()),
 	})
+}
+
+// ListDevices returns the currently registered BLE devices and their
+// connection state. Available when the registry was passed to NewServer;
+// returns 503 otherwise.
+func (h *Handlers) ListDevices(c *fiber.Ctx) error {
+	if h.reg == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(SuccessResponse{
+			Success: false, Error: "device registry not configured",
+		})
+	}
+	out := make([]deviceListEntry, 0, h.reg.Len())
+	for _, e := range h.reg.List() {
+		out = append(out, deviceListEntry{
+			ID:        e.ID,
+			Name:      e.Name,
+			MAC:       e.MAC,
+			Connected: e.Client.IsConnected(),
+		})
+	}
+	return c.JSON(fiber.Map{"success": true, "devices": out})
+}
+
+// ScanDevices runs a BLE scan and returns the list of CoolLEDUX
+// advertisers seen. Does not modify the registry — pairing a discovered
+// device is a separate (future) endpoint.
+func (h *Handlers) ScanDevices(c *fiber.Ctx) error {
+	if h.reg == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(SuccessResponse{
+			Success: false, Error: "device registry not configured",
+		})
+	}
+	// Use a context with the configured scan timeout so a request that's
+	// cancelled client-side also cancels the scan.
+	ctx, cancel := context.WithTimeout(c.Context(), h.scanTimeout())
+	defer cancel()
+
+	results, err := ble.Scan(ctx, h.scanPrefix(), h.scanTimeout(), h.logger)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
+			Success: false, Error: err.Error(),
+		})
+	}
+	out := make([]scanListEntry, 0, len(results))
+	for _, r := range results {
+		_, registered := h.reg.Get(config.NormalizeMAC(r.MAC))
+		out = append(out, scanListEntry{
+			MAC:        r.MAC,
+			Name:       r.Name,
+			RSSI:       r.RSSI,
+			Registered: registered,
+		})
+	}
+	return c.JSON(fiber.Map{"success": true, "results": out})
+}
+
+// deviceListEntry is the JSON body of one /devices list item.
+type deviceListEntry struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	MAC       string `json:"mac"`
+	Connected bool   `json:"connected"`
+}
+
+// scanListEntry is the JSON body of one /scan result.
+type scanListEntry struct {
+	MAC        string `json:"mac"`
+	Name       string `json:"name"`
+	RSSI       int16  `json:"rssi"`
+	Registered bool   `json:"registered"`
+}
+
+func (h *Handlers) scanPrefix() string {
+	// "CoolLEDUX" is the only product line this service knows how to
+	// drive. If we ever add support for iDevilEyes etc., promote this
+	// to config.
+	return "CoolLEDUX"
+}
+
+func (h *Handlers) scanTimeout() time.Duration {
+	if h.scanTO > 0 {
+		return h.scanTO
+	}
+	return 5 * time.Second
 }
 
 // GetDeviceInfo queries the device over BLE and returns its identity and state.

@@ -6,6 +6,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/liskl/coolledux-controller/internal/config"
 	"github.com/liskl/coolledux-controller/internal/controller"
+	"github.com/liskl/coolledux-controller/internal/registry"
 )
 
 // Server is the HTTP server that exposes the REST API.
@@ -16,8 +17,10 @@ type Server struct {
 }
 
 // NewServer creates and configures a Fiber HTTP server with all routes
-// registered and middleware applied.
-func NewServer(ctrl *controller.Controller, cfg *config.Config, logger *slog.Logger) *Server {
+// registered and middleware applied. The primary controller backs the
+// legacy single-device routes; the registry (optional) backs /devices
+// and /scan. Pass nil for reg in single-device tests.
+func NewServer(ctrl *controller.Controller, cfg *config.Config, logger *slog.Logger, reg *registry.Registry) *Server {
 	app := fiber.New(fiber.Config{
 		// Return JSON errors instead of plaintext.
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
@@ -41,10 +44,16 @@ func NewServer(ctrl *controller.Controller, cfg *config.Config, logger *slog.Log
 
 	// Register routes.
 	h := NewHandlers(ctrl, logger)
+	h.reg = reg
+	h.scanTO = cfg.BLE.ScanTimeout
 
 	// Health & info
 	app.Get("/health", h.HealthCheck)
 	app.Get("/device/info", h.GetDeviceInfo)
+
+	// Multi-device registry endpoints
+	app.Get("/devices", h.ListDevices)
+	app.Post("/scan", h.ScanDevices)
 
 	// Device control
 	app.Post("/device/power", h.SetPower)

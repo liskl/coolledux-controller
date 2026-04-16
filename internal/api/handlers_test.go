@@ -46,7 +46,7 @@ func newTestRig(t *testing.T) *testRig {
 	})
 	ctrl.OverrideStateForTest(controller.StateConnected)
 
-	srv := NewServer(ctrl, cfg, logger)
+	srv := NewServer(ctrl, cfg, logger, nil)
 	return &testRig{
 		srv:       srv,
 		bleClient: bleClient,

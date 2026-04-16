@@ -196,6 +196,30 @@ func (c *Controller) SetColorMode(ctx context.Context, mode int) error {
 	return nil
 }
 
+// SetShowDeviceID toggles whether the panel displays its device
+// identifier (0x1E/0x01). Current value is read back via GetDeviceInfo.
+func (c *Controller) SetShowDeviceID(ctx context.Context, on bool) error {
+	cmd := protocol.BuildSetDeviceInfoCommand(protocol.DEVICE_INFO_SUBTYPE_SHOW_ID, on)
+	if err := c.transport.SendCommand(ctx, cmd); err != nil {
+		return fmt.Errorf("setting show-device-id: %w", err)
+	}
+	c.logger.Info("show device id toggled", "on", on)
+	return nil
+}
+
+// SetRemoteEnabled toggles the panel's remote-control mode (0x1E/0x02).
+// The exact feature this gates (RF remote pairing? BLE remote command
+// acceptance?) is unknown; see docs/specs/protocol-ble.md "Device Info
+// Toggles" for probe findings.
+func (c *Controller) SetRemoteEnabled(ctx context.Context, on bool) error {
+	cmd := protocol.BuildSetDeviceInfoCommand(protocol.DEVICE_INFO_SUBTYPE_REMOTE, on)
+	if err := c.transport.SendCommand(ctx, cmd); err != nil {
+		return fmt.Errorf("setting remote-enabled: %w", err)
+	}
+	c.logger.Info("remote toggled", "on", on)
+	return nil
+}
+
 // SyncTime sets the device clock to the given time.
 func (c *Controller) SyncTime(ctx context.Context, t time.Time) error {
 	cmd := protocol.BuildTimeSyncCommand(t)

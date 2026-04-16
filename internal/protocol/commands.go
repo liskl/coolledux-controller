@@ -159,6 +159,18 @@ func BuildDeviceInfoCommand() []byte {
 	return BuildStreamFrame([]byte{CMD_DEVICE_INFO})
 }
 
+// BuildSetDeviceInfoCommand toggles one of the panel's boolean settings
+// (show device ID, remote enable). Matches setDeviceInfo at
+// CoolledUXUtils.java:4843 — stream-framed, no CRC. Subtype selects
+// which setting; `on` is the new value.
+func BuildSetDeviceInfoCommand(subtype byte, on bool) []byte {
+	flag := byte(0x00)
+	if on {
+		flag = 0x01
+	}
+	return BuildStreamFrame([]byte{CMD_SET_DEVICE_INFO, subtype, flag})
+}
+
 // --- Countdown timer overlay (CMD_COUNTDOWN, 0x0F) ---
 
 // BuildCountdownStatusCommand requests the current countdown state.

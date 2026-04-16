@@ -22,6 +22,7 @@ const (
 	CMD_STOPWATCH      byte = 0x10 // Stopwatch overlay. Subtype 0x01=status, 0x02=reset, 0x03=start/stop.
 	CMD_SCOREBOARD     byte = 0x11 // Scoreboard overlay. Subtype 0x01=status, 0x02=set scores, 0x03=set time, 0x04=start/stop.
 	CMD_COLOR          byte = 0x13 // Global color control. Subtype 0x01=single color, 0x02=speed, 0x03=mode.
+	CMD_SET_DEVICE_INFO byte = 0x1E // Toggle booleans (show-device-id, remote-enable) on the panel.
 	CMD_DEVICE_INFO    byte = 0x1F // Verified: 0x1F (not 0x0D)
 )
 
@@ -39,6 +40,12 @@ const (
 	SCOREBOARD_SUBTYPE_SET_SCORES byte = 0x02
 	SCOREBOARD_SUBTYPE_SET_TIME   byte = 0x03
 	SCOREBOARD_SUBTYPE_START_STOP byte = 0x04
+
+	// 0x1E setDeviceInfo subtypes. Values 1 and 2 are wired to checkboxes
+	// in SettingsCoolleduxFragment; value 3 is for a different product
+	// line (iLedClock). See CoolledUXUtils.java:4843.
+	DEVICE_INFO_SUBTYPE_SHOW_ID byte = 0x01
+	DEVICE_INFO_SUBTYPE_REMOTE  byte = 0x02
 )
 
 // Color command subtypes (second byte after CMD_COLOR).

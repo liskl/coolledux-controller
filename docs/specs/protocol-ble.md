@@ -91,7 +91,7 @@ Every command is built by appending the command byte and payload to a list, then
 | `0x1A` | Program start (simple) | `[CRC32:4 BE][rawLen:4 BE][index:1]` | `getStartDataForProgram` (2-arg) | 4484 | not used in current Go service |
 | `0x1C` | Drive state set | `[0x01][state:1]` | `getSetDriveState` | 4419 | **not supported on 16x96** (probed 2026-04-16, see "Drive State" note) |
 | `0x1C` | Drive state get | `[0x02]` | `getDriveState` | 4277 | **not supported on 16x96** (no response; see "Drive State" note) |
-| `0x1E` | Set device info field | `[0x01=brightness, 0x02=mirror, 0x03=rotate][value:1]` | `setDeviceInfo` | 4843 | untested; alternate path to 0x04/0x0C |
+| `0x1E` | Toggle device info flag | `[0x01=show-device-id \| 0x02=remote-enable][0 \| 1]` | `setDeviceInfo` | 4843 | verified (hardware 2026-04-16); subtype 0x03 is iLedClock-only |
 | `0x1F` | Get device info | Empty | `getDeviceInfo` | 4165 | verified |
 | `0xFD` | OTA version query | Empty | `getDeviceOTAVersion` | 4171 | untested |
 | `0xFE` | OTA upgrade start | `[CRC32:4 BE][rawLen:4 BE][chunkSize:1][firstChunk...]` | `getStartDataForOtaUpgrade` / `getStartOTAUpdate` | 4473 / 4538 | untested |
@@ -484,6 +484,24 @@ Probe results from bead `o2l` on the 16x96 v10 firmware pinned down all three pa
 - Whether `i3` ≥ 5 is meaningful. The APK never emits values above 4.
 - Whether `i4` values ≥ 6 are accepted or error out; the APK emits at most 5.
 - Speed scaling formula — we confirmed speed=1 is clearly slower than speed=10 on mode 1, but didn't measure the exact ms-per-step function.
+
+## Device Info Toggles (`0x1E`)
+
+Two boolean settings surfaced by the CoolLEDUX app's `SettingsCoolleduxFragment` and confirmed writable on 16x96:
+
+| Subtype | Meaning | APK UI binding |
+|--------:|---------|----------------|
+| `0x01`  | Show device ID on panel | `show_device_id_cb` at `SettingsCoolleduxFragment.java:200` |
+| `0x02`  | Enable remote control    | `remote_cb` at `SettingsCoolleduxFragment.java:195` |
+| `0x03`  | (iLedClock product line) | Not wired on CoolLEDUX — don't send |
+
+Command body is `[0x1E, subtype, 0x00 \| 0x01]` stream-framed, no CRC. The device echoes a response frame with type byte `0x1E` (shape `[0x1E, some_byte]` per `DeviceManager.java:4418`).
+
+### Hardware findings (2026-04-16, v10 firmware)
+
+- Both subtypes are accepted and round-trip through the `0x1F` device-info response. Baseline `show_device_id=true, remote_enabled=true` → `false` → `true` observed on both fields during probing, so there is no sticky one-way interlock (an earlier-looking "stuck false" pattern on remote_enabled turned out to be a state-read race, see below).
+- No visible change on the panel while a program is actively displaying content. These toggles almost certainly affect the default/idle scroll (the `"1. CoolLED"` fallback) rather than an active program's rendering. Verifying that specifically would require clearing the program and observing idle state.
+- The `0x1E` response frame is not silently consumed anywhere — it arrives on the same notification pipe as the `0x1F` device-info response. Our current `GetDeviceInfo` parser rejects any frame whose first byte is not `0x1F`, so a stale `0x1E` ACK from a previous toggle can cause an unrelated `/device/info` call to return `"not a device info response: type 0x1E"`. Implementation bead `5i7` needs to either filter `0x1E` frames at the transport layer or make the device-info parser tolerant of them.
 
 ## Drive State (`0x1C/0x01`, `0x1C/0x02`) — not supported on 16x96
 

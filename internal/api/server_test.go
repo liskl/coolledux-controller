@@ -1031,6 +1031,50 @@ func TestListDevices_NoRegistry(t *testing.T) {
 	}
 }
 
+func TestPerDeviceRoute_KnownID(t *testing.T) {
+	srv, reg := testServerWithRegistry(t)
+	id := reg.Primary().ID
+
+	// BLE is disconnected so the handler will return 500, but the :id
+	// resolution should succeed and match the registered primary.
+	req, _ := http.NewRequest(http.MethodGet, "/device/"+id+"/info", nil)
+	resp, err := srv.app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500 (BLE disconnected)", resp.StatusCode)
+	}
+}
+
+func TestPerDeviceRoute_UnknownID(t *testing.T) {
+	srv, _ := testServerWithRegistry(t)
+	req, _ := http.NewRequest(http.MethodGet, "/device/deadbeef/info", nil)
+	resp, err := srv.app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestPerDeviceRoute_NoRegistry(t *testing.T) {
+	srv := testServer(t)
+	// Legacy srv has no registry — per-device routes should 503.
+	req, _ := http.NewRequest(http.MethodGet, "/device/anything/info", nil)
+	resp, err := srv.app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", resp.StatusCode)
+	}
+}
+
 func TestScanDevices_NoRegistry(t *testing.T) {
 	srv := testServer(t)
 	req, _ := http.NewRequest(http.MethodPost, "/scan", nil)

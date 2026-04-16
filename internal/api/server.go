@@ -82,6 +82,34 @@ func NewServer(ctrl *controller.Controller, cfg *config.Config, logger *slog.Log
 	app.Post("/scoreboard", h.Scoreboard)
 	app.Post("/debug/timecount", h.CountdownProbeHandler)
 
+	// Per-device routes. Every legacy device route above has a twin here
+	// under /device/:id/... that targets the requested MAC instead of the
+	// primary. The resolve helper in Handlers reads :id and dispatches;
+	// legacy routes reuse the same handler with no :id set so they still
+	// hit the primary. Once these are hardware-verified, a follow-up
+	// bead removes the legacy routes.
+	app.Get("/device/:id/info", h.GetDeviceInfo)
+	app.Post("/device/:id/power", h.SetPower)
+	app.Post("/device/:id/brightness", h.SetBrightness)
+	app.Post("/device/:id/flip", h.SetFlip)
+	app.Post("/device/:id/channel", h.SetChannel)
+	app.Post("/device/:id/time", h.SyncTime)
+	app.Post("/device/:id/timer", h.SetTimers)
+	app.Get("/device/:id/timer", h.GetTimers)
+	app.Post("/device/:id/reset", h.ResetDevice)
+	app.Post("/device/:id/show-id", h.SetShowDeviceID)
+	app.Post("/device/:id/remote", h.SetRemote)
+	app.Post("/device/:id/text", h.DisplayText)
+	app.Post("/device/:id/image", h.DisplayImage)
+	app.Post("/device/:id/gif", h.DisplayGIF)
+	app.Post("/device/:id/color", h.SetColor)
+	app.Post("/device/:id/color/mode", h.SetColorMode)
+	app.Post("/device/:id/color/speed", h.SetColorSpeed)
+	app.Post("/device/:id/countdown", h.Countdown)
+	app.Post("/device/:id/stopwatch", h.Stopwatch)
+	app.Post("/device/:id/scoreboard", h.Scoreboard)
+	app.Post("/device/:id/debug/timecount", h.CountdownProbeHandler)
+
 	return &Server{
 		app:    app,
 		cfg:    cfg,

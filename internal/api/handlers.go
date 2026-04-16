@@ -133,9 +133,34 @@ func (h *Handlers) scanTimeout() time.Duration {
 	return 5 * time.Second
 }
 
+// resolve picks the controller for the device addressed by the URL's
+// ":id" path parameter. Legacy routes (no :id) get the primary controller;
+// per-device routes get the matching registry entry's controller. Returns
+// a Fiber HTTP error (routed through the error-handler middleware) when
+// the ID is present but unknown, so handlers can just return err and get
+// a JSON 404 for free.
+func (h *Handlers) resolve(c *fiber.Ctx) (*controller.Controller, error) {
+	id := c.Params("id")
+	if id == "" {
+		return h.ctrl, nil
+	}
+	if h.reg == nil {
+		return nil, fiber.NewError(fiber.StatusServiceUnavailable, "device registry not configured")
+	}
+	entry, ok := h.reg.Get(id)
+	if !ok {
+		return nil, fiber.NewError(fiber.StatusNotFound, "device "+id+" not registered")
+	}
+	return entry.Controller, nil
+}
+
 // GetDeviceInfo queries the device over BLE and returns its identity and state.
 func (h *Handlers) GetDeviceInfo(c *fiber.Ctx) error {
-	info, err := h.ctrl.GetDeviceInfo(c.Context())
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
+	info, err := ctrl.GetDeviceInfo(c.Context())
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
@@ -147,6 +172,10 @@ func (h *Handlers) GetDeviceInfo(c *fiber.Ctx) error {
 
 // SetPower turns the display on or off.
 func (h *Handlers) SetPower(c *fiber.Ctx) error {
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
 	var req PowerRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
@@ -169,7 +198,7 @@ func (h *Handlers) SetPower(c *fiber.Ctx) error {
 		})
 	}
 
-	if err := h.ctrl.SetPower(c.Context(), on); err != nil {
+	if err := ctrl.SetPower(c.Context(), on); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -180,6 +209,10 @@ func (h *Handlers) SetPower(c *fiber.Ctx) error {
 
 // SetBrightness sets the display brightness level.
 func (h *Handlers) SetBrightness(c *fiber.Ctx) error {
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
 	var req BrightnessRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
@@ -188,7 +221,7 @@ func (h *Handlers) SetBrightness(c *fiber.Ctx) error {
 		})
 	}
 
-	if err := h.ctrl.SetBrightness(c.Context(), req.Brightness); err != nil {
+	if err := ctrl.SetBrightness(c.Context(), req.Brightness); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -199,6 +232,10 @@ func (h *Handlers) SetBrightness(c *fiber.Ctx) error {
 
 // SetFlip sets the display orientation flip mode.
 func (h *Handlers) SetFlip(c *fiber.Ctx) error {
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
 	var req FlipRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
@@ -215,7 +252,7 @@ func (h *Handlers) SetFlip(c *fiber.Ctx) error {
 		})
 	}
 
-	if err := h.ctrl.SetFlip(c.Context(), mode); err != nil {
+	if err := ctrl.SetFlip(c.Context(), mode); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -226,6 +263,10 @@ func (h *Handlers) SetFlip(c *fiber.Ctx) error {
 
 // SetChannel switches the displayed program/channel slot.
 func (h *Handlers) SetChannel(c *fiber.Ctx) error {
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
 	var req ChannelRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
@@ -234,7 +275,7 @@ func (h *Handlers) SetChannel(c *fiber.Ctx) error {
 		})
 	}
 
-	if err := h.ctrl.SetChannel(c.Context(), req.Channel); err != nil {
+	if err := ctrl.SetChannel(c.Context(), req.Channel); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -246,6 +287,10 @@ func (h *Handlers) SetChannel(c *fiber.Ctx) error {
 // SyncTime sets the device clock. If no time fields are provided in the request
 // body (or the body is empty), the current system time is used.
 func (h *Handlers) SyncTime(c *fiber.Ctx) error {
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
 	var req TimeRequest
 	// BodyParser may fail on empty body; that's fine, we default to now.
 	_ = c.BodyParser(&req)
@@ -259,7 +304,7 @@ func (h *Handlers) SyncTime(c *fiber.Ctx) error {
 			int(req.Hour), int(req.Minute), int(req.Second), 0, now.Location())
 	}
 
-	if err := h.ctrl.SyncTime(c.Context(), t); err != nil {
+	if err := ctrl.SyncTime(c.Context(), t); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -270,6 +315,10 @@ func (h *Handlers) SyncTime(c *fiber.Ctx) error {
 
 // SetTimers configures the device timer schedule.
 func (h *Handlers) SetTimers(c *fiber.Ctx) error {
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
 	var req TimerRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
@@ -289,7 +338,7 @@ func (h *Handlers) SetTimers(c *fiber.Ctx) error {
 		}
 	}
 
-	if err := h.ctrl.SetTimers(c.Context(), items); err != nil {
+	if err := ctrl.SetTimers(c.Context(), items); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -300,7 +349,11 @@ func (h *Handlers) SetTimers(c *fiber.Ctx) error {
 
 // GetTimers retrieves the device timer schedule as raw bytes.
 func (h *Handlers) GetTimers(c *fiber.Ctx) error {
-	resp, err := h.ctrl.GetTimers(c.Context())
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
+	resp, err := ctrl.GetTimers(c.Context())
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
@@ -315,7 +368,11 @@ func (h *Handlers) GetTimers(c *fiber.Ctx) error {
 
 // ResetDevice sends a factory reset command to the device.
 func (h *Handlers) ResetDevice(c *fiber.Ctx) error {
-	if err := h.ctrl.ResetDevice(c.Context()); err != nil {
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
+	if err := ctrl.ResetDevice(c.Context()); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -326,12 +383,20 @@ func (h *Handlers) ResetDevice(c *fiber.Ctx) error {
 
 // SetShowDeviceID toggles whether the panel displays its device ID.
 func (h *Handlers) SetShowDeviceID(c *fiber.Ctx) error {
-	return h.handleDeviceInfoToggle(c, h.ctrl.SetShowDeviceID)
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
+	return h.handleDeviceInfoToggle(c, ctrl.SetShowDeviceID)
 }
 
 // SetRemote toggles the panel's remote-control mode.
 func (h *Handlers) SetRemote(c *fiber.Ctx) error {
-	return h.handleDeviceInfoToggle(c, h.ctrl.SetRemoteEnabled)
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
+	return h.handleDeviceInfoToggle(c, ctrl.SetRemoteEnabled)
 }
 
 func (h *Handlers) handleDeviceInfoToggle(c *fiber.Ctx, setter func(ctx context.Context, on bool) error) error {
@@ -351,6 +416,10 @@ func (h *Handlers) handleDeviceInfoToggle(c *fiber.Ctx, setter func(ctx context.
 
 // DisplayText renders and displays text on the LED matrix.
 func (h *Handlers) DisplayText(c *fiber.Ctx) error {
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
 	var req TextRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
@@ -375,7 +444,7 @@ func (h *Handlers) DisplayText(c *fiber.Ctx) error {
 		})
 	}
 
-	if err := h.ctrl.DisplayText(c.Context(), req.Text, mode, req.Speed, req.StayTime, req.FontSize, color, req.Font); err != nil {
+	if err := ctrl.DisplayText(c.Context(), req.Text, mode, req.Speed, req.StayTime, req.FontSize, color, req.Font); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -391,6 +460,10 @@ func (h *Handlers) DisplayText(c *fiber.Ctx) error {
 //
 //	POST /debug/timecount { "probe_hex": "80000000...", "color": "#00FF00" }
 func (h *Handlers) CountdownProbeHandler(c *fiber.Ctx) error {
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
 	var req struct {
 		ProbeHex string `json:"probe_hex"`
 		Color    string `json:"color"`
@@ -425,7 +498,7 @@ func (h *Handlers) CountdownProbeHandler(c *fiber.Ctx) error {
 		}
 		color = parsed
 	}
-	if err := h.ctrl.CountdownProbe(c.Context(), bitmap, color); err != nil {
+	if err := ctrl.CountdownProbe(c.Context(), bitmap, color); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false, Error: err.Error(),
 		})
@@ -435,22 +508,25 @@ func (h *Handlers) CountdownProbeHandler(c *fiber.Ctx) error {
 
 // Countdown handles POST /countdown { action, hour?, minute?, second? }.
 func (h *Handlers) Countdown(c *fiber.Ctx) error {
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
 	var req CountdownRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
 			Success: false, Error: "invalid request body: " + err.Error(),
 		})
 	}
-	var err error
 	switch strings.ToLower(req.Action) {
 	case "status":
-		err = h.ctrl.CountdownStatus(c.Context())
+		err = ctrl.CountdownStatus(c.Context())
 	case "set":
-		err = h.ctrl.CountdownSet(c.Context(), req.Hour, req.Minute, req.Second)
+		err = ctrl.CountdownSet(c.Context(), req.Hour, req.Minute, req.Second)
 	case "start":
-		err = h.ctrl.CountdownStartStop(c.Context(), true)
+		err = ctrl.CountdownStartStop(c.Context(), true)
 	case "stop":
-		err = h.ctrl.CountdownStartStop(c.Context(), false)
+		err = ctrl.CountdownStartStop(c.Context(), false)
 	case "show":
 		color := uint32(0xFFFFFF)
 		if req.Color != "" {
@@ -462,7 +538,7 @@ func (h *Handlers) Countdown(c *fiber.Ctx) error {
 			}
 			color = parsed
 		}
-		err = h.ctrl.CountdownDisplay(c.Context(), req.Hour, req.Minute, req.Second, color)
+		err = ctrl.CountdownDisplay(c.Context(), req.Hour, req.Minute, req.Second, color)
 	default:
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
 			Success: false, Error: `action must be one of "status", "set", "start", "stop", "show"`,
@@ -478,22 +554,25 @@ func (h *Handlers) Countdown(c *fiber.Ctx) error {
 
 // Stopwatch handles POST /stopwatch { action }.
 func (h *Handlers) Stopwatch(c *fiber.Ctx) error {
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
 	var req StopwatchRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
 			Success: false, Error: "invalid request body: " + err.Error(),
 		})
 	}
-	var err error
 	switch strings.ToLower(req.Action) {
 	case "status":
-		err = h.ctrl.StopwatchStatus(c.Context())
+		err = ctrl.StopwatchStatus(c.Context())
 	case "reset":
-		err = h.ctrl.StopwatchReset(c.Context())
+		err = ctrl.StopwatchReset(c.Context())
 	case "start":
-		err = h.ctrl.StopwatchStartStop(c.Context(), true)
+		err = ctrl.StopwatchStartStop(c.Context(), true)
 	case "stop":
-		err = h.ctrl.StopwatchStartStop(c.Context(), false)
+		err = ctrl.StopwatchStartStop(c.Context(), false)
 	case "show":
 		color := uint32(0xFFFFFF)
 		if req.Color != "" {
@@ -505,7 +584,7 @@ func (h *Handlers) Stopwatch(c *fiber.Ctx) error {
 			}
 			color = parsed
 		}
-		err = h.ctrl.StopwatchDisplay(c.Context(), color)
+		err = ctrl.StopwatchDisplay(c.Context(), color)
 	default:
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
 			Success: false, Error: `action must be one of "status", "reset", "start", "stop", "show"`,
@@ -522,24 +601,27 @@ func (h *Handlers) Stopwatch(c *fiber.Ctx) error {
 // Scoreboard handles POST /scoreboard { action, ... }.
 // Note: scoreboard packets are ACKed but not visible on the 16x96 firmware.
 func (h *Handlers) Scoreboard(c *fiber.Ctx) error {
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
 	var req ScoreboardRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
 			Success: false, Error: "invalid request body: " + err.Error(),
 		})
 	}
-	var err error
 	switch strings.ToLower(req.Action) {
 	case "status":
-		err = h.ctrl.ScoreboardStatus(c.Context())
+		err = ctrl.ScoreboardStatus(c.Context())
 	case "set_scores":
-		err = h.ctrl.ScoreboardSetScores(c.Context(), req.ScoreA, req.ScoreB, req.TotalA, req.TotalB)
+		err = ctrl.ScoreboardSetScores(c.Context(), req.ScoreA, req.ScoreB, req.TotalA, req.TotalB)
 	case "set_time":
-		err = h.ctrl.ScoreboardSetTime(c.Context(), req.Hour, req.Minute, req.IsTimer)
+		err = ctrl.ScoreboardSetTime(c.Context(), req.Hour, req.Minute, req.IsTimer)
 	case "start":
-		err = h.ctrl.ScoreboardStartStop(c.Context(), true)
+		err = ctrl.ScoreboardStartStop(c.Context(), true)
 	case "stop":
-		err = h.ctrl.ScoreboardStartStop(c.Context(), false)
+		err = ctrl.ScoreboardStartStop(c.Context(), false)
 	case "show":
 		color := uint32(0xFFFFFF)
 		if req.Color != "" {
@@ -551,7 +633,7 @@ func (h *Handlers) Scoreboard(c *fiber.Ctx) error {
 			}
 			color = parsed
 		}
-		err = h.ctrl.ScoreboardDisplay(c.Context(), color)
+		err = ctrl.ScoreboardDisplay(c.Context(), color)
 	default:
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
 			Success: false, Error: `action must be one of "status", "set_scores", "set_time", "start", "stop", "show"`,
@@ -586,6 +668,10 @@ func (h *Handlers) ListFonts(c *fiber.Ctx) error {
 
 // SetColor sets the device's global tint color.
 func (h *Handlers) SetColor(c *fiber.Ctx) error {
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
 	var req ColorRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
@@ -602,7 +688,7 @@ func (h *Handlers) SetColor(c *fiber.Ctx) error {
 		})
 	}
 
-	if err := h.ctrl.SetColor(c.Context(), color); err != nil {
+	if err := ctrl.SetColor(c.Context(), color); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -613,6 +699,10 @@ func (h *Handlers) SetColor(c *fiber.Ctx) error {
 
 // SetColorMode activates a built-in color animation preset.
 func (h *Handlers) SetColorMode(c *fiber.Ctx) error {
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
 	var req ColorModeRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
@@ -620,7 +710,7 @@ func (h *Handlers) SetColorMode(c *fiber.Ctx) error {
 			Error:   "invalid request body: " + err.Error(),
 		})
 	}
-	if err := h.ctrl.SetColorMode(c.Context(), req.Mode); err != nil {
+	if err := ctrl.SetColorMode(c.Context(), req.Mode); err != nil {
 		// Invalid mode IDs are a client error; transport errors are 500.
 		// The protocol builder surfaces invalid modes as a distinct error
 		// string — route on that.
@@ -635,6 +725,10 @@ func (h *Handlers) SetColorMode(c *fiber.Ctx) error {
 
 // SetColorSpeed adjusts color-animation cycle speed.
 func (h *Handlers) SetColorSpeed(c *fiber.Ctx) error {
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
 	var req ColorSpeedRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
@@ -642,7 +736,7 @@ func (h *Handlers) SetColorSpeed(c *fiber.Ctx) error {
 			Error:   "invalid request body: " + err.Error(),
 		})
 	}
-	if err := h.ctrl.SetColorSpeed(c.Context(), req.Speed); err != nil {
+	if err := ctrl.SetColorSpeed(c.Context(), req.Speed); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -653,6 +747,10 @@ func (h *Handlers) SetColorSpeed(c *fiber.Ctx) error {
 
 // DisplayImage decodes a base64-encoded image and displays it on the LED matrix.
 func (h *Handlers) DisplayImage(c *fiber.Ctx) error {
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
 	var req ImageRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
@@ -685,7 +783,7 @@ func (h *Handlers) DisplayImage(c *fiber.Ctx) error {
 		})
 	}
 
-	if err := h.ctrl.DisplayImage(c.Context(), imgData, mode, req.Speed, req.StayTime, fit, req.X, req.Y, req.Width, req.Height); err != nil {
+	if err := ctrl.DisplayImage(c.Context(), imgData, mode, req.Speed, req.StayTime, fit, req.X, req.Y, req.Width, req.Height); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -696,6 +794,10 @@ func (h *Handlers) DisplayImage(c *fiber.Ctx) error {
 
 // DisplayGIF decodes a base64-encoded GIF and displays it as an animation.
 func (h *Handlers) DisplayGIF(c *fiber.Ctx) error {
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
 	var req GIFRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
@@ -713,7 +815,7 @@ func (h *Handlers) DisplayGIF(c *fiber.Ctx) error {
 	}
 
 	if req.Raw {
-		if err := h.ctrl.DisplayRawGIF(c.Context(), gifData, req.X, req.Y, req.Width, req.Height); err != nil {
+		if err := ctrl.DisplayRawGIF(c.Context(), gifData, req.X, req.Y, req.Width, req.Height); err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 				Success: false,
 				Error:   err.Error(),
@@ -730,7 +832,7 @@ func (h *Handlers) DisplayGIF(c *fiber.Ctx) error {
 		})
 	}
 
-	if err := h.ctrl.DisplayGIF(c.Context(), gifData, req.FrameDuration, fit, req.X, req.Y, req.Width, req.Height); err != nil {
+	if err := ctrl.DisplayGIF(c.Context(), gifData, req.FrameDuration, fit, req.X, req.Y, req.Width, req.Height); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),

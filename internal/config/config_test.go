@@ -267,3 +267,71 @@ func TestNormalizeMAC(t *testing.T) {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+func TestIsExcluded(t *testing.T) {
+	b := BLEConfig{
+		ExcludeMACs: []string{
+			"01:00:00:9E:3E:75",
+			"aabbccddeeff",
+		},
+	}
+	tests := []struct {
+		mac  string
+		want bool
+	}{
+		{"01:00:00:9E:3E:75", true},
+		{"01:00:00:9e:3e:75", true}, // lowercase hex
+		{"0100009e3e75", true},      // no colons
+		{"01-00-00-9E-3E-75", true}, // dash separators survive the stripper? — colons only.
+		{"AA:BB:CC:DD:EE:FF", true}, // uppercased version of the normalized entry
+		{"01:00:00:FB:A4:16", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.mac, func(t *testing.T) {
+			got := b.IsExcluded(tt.mac)
+			// The dash-separator case is expected to NOT match because
+			// NormalizeMAC only strips colons; dashes are not handled.
+			// We assert false for that one to document the behavior.
+			if tt.mac == "01-00-00-9E-3E-75" {
+				if got {
+					t.Errorf("dash-separated MAC matched; NormalizeMAC does not strip dashes")
+				}
+				return
+			}
+			if got != tt.want {
+				t.Errorf("IsExcluded(%q) = %v, want %v", tt.mac, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveDevices_AppliesExcludes(t *testing.T) {
+	// Even when a MAC is explicitly in Devices, the exclude list wins.
+	b := BLEConfig{
+		Devices: []DeviceConfig{
+			{Name: "kitchen", MAC: "01:00:00:FB:A4:16"},
+			{Name: "garage", MAC: "01:00:00:9E:3E:75"},
+		},
+		ExcludeMACs: []string{"01:00:00:9E:3E:75"},
+	}
+	got := b.ResolveDevices()
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].MAC != "01:00:00:FB:A4:16" {
+		t.Errorf("remaining device MAC = %q, want kitchen's", got[0].MAC)
+	}
+}
+
+func TestResolveDevices_ExcludesLegacyMAC(t *testing.T) {
+	// Even the legacy single-device MAC can be excluded. A degenerate
+	// config but we document that ExcludeMACs wins universally.
+	b := BLEConfig{
+		DeviceMAC:   "01:00:00:FB:A4:16",
+		ExcludeMACs: []string{"01:00:00:FB:A4:16"},
+	}
+	if got := b.ResolveDevices(); len(got) != 0 {
+		t.Errorf("expected empty, got %+v", got)
+	}
+}

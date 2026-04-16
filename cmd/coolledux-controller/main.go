@@ -55,6 +55,10 @@ func main() {
 			logger.Warn("startup scan failed, continuing with configured devices only", "error", err)
 		}
 		for _, r := range results {
+			if cfg.BLE.IsExcluded(r.MAC) {
+				logger.Info("skipping excluded device", "mac", r.MAC, "name", r.Name)
+				continue
+			}
 			dev := config.DeviceConfig{Name: r.Name, MAC: r.MAC}
 			if _, exists := reg.Get(dev.ID()); exists {
 				// Already registered from static config.

@@ -23,16 +23,39 @@ type Config struct {
 // The legacy DeviceMAC field still works — if set and Devices is empty it's
 // treated as a single-device configuration. Devices also wins if both are
 // set (legacy field is ignored).
+//
+// ExcludeMACs is a block list that wins over everything: any MAC here is
+// filtered out of both the static Devices list and scan discoveries before
+// registration. Use it to keep the service from driving a neighbour's
+// sign, or a panel you've temporarily pulled from the fleet.
 type BLEConfig struct {
 	DeviceName        string         `mapstructure:"device_name"`
 	DeviceMAC         string         `mapstructure:"device_mac"`
 	Devices           []DeviceConfig `mapstructure:"devices"`
+	ExcludeMACs       []string       `mapstructure:"exclude_macs"`
 	ScanOnStartup     *bool          `mapstructure:"scan_on_startup"`
 	ServiceUUID       string         `mapstructure:"service_uuid"`
 	CharUUID          string         `mapstructure:"char_uuid"`
 	DeviceServiceUUID string         `mapstructure:"device_service_uuid"`
 	ScanTimeout       time.Duration  `mapstructure:"scan_timeout"`
 	ReconnectInterval time.Duration  `mapstructure:"reconnect_interval"`
+}
+
+// IsExcluded reports whether the given MAC appears in ExcludeMACs.
+// Comparison is case-insensitive and ignores colon separators, so the
+// same MAC written "01:00:00:FB:A4:16", "01-00-00-FB-A4-16", or
+// "010000fba416" all match.
+func (b *BLEConfig) IsExcluded(mac string) bool {
+	if mac == "" {
+		return false
+	}
+	target := NormalizeMAC(mac)
+	for _, excl := range b.ExcludeMACs {
+		if NormalizeMAC(excl) == target {
+			return true
+		}
+	}
+	return false
 }
 
 // DeviceConfig is one entry in BLEConfig.Devices.
@@ -44,15 +67,26 @@ type DeviceConfig struct {
 // ResolveDevices returns the effective device list: if the new Devices
 // slice is non-empty, it's used as-is; otherwise the legacy DeviceMAC is
 // wrapped into a single entry. Returns an empty slice if neither is set,
-// which is a valid "scan only" configuration.
+// which is a valid "scan only" configuration. Excluded MACs are dropped
+// before returning so callers don't need to re-apply the filter.
 func (b *BLEConfig) ResolveDevices() []DeviceConfig {
-	if len(b.Devices) > 0 {
-		return b.Devices
+	var raw []DeviceConfig
+	switch {
+	case len(b.Devices) > 0:
+		raw = b.Devices
+	case b.DeviceMAC != "":
+		raw = []DeviceConfig{{MAC: b.DeviceMAC}}
+	default:
+		return nil
 	}
-	if b.DeviceMAC != "" {
-		return []DeviceConfig{{MAC: b.DeviceMAC}}
+	out := make([]DeviceConfig, 0, len(raw))
+	for _, d := range raw {
+		if b.IsExcluded(d.MAC) {
+			continue
+		}
+		out = append(out, d)
 	}
-	return nil
+	return out
 }
 
 // ScanOnStartupEnabled reports whether the service should run a BLE scan

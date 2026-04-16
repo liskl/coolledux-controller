@@ -25,6 +25,7 @@ type Handlers struct {
 	ctrl      *controller.Controller
 	reg       *registry.Registry // Optional: backs /devices and /scan.
 	scanTO    time.Duration      // Overrides the default scan timeout when set.
+	excluded  func(mac string) bool
 	startTime time.Time
 	logger    *slog.Logger
 }
@@ -93,11 +94,16 @@ func (h *Handlers) ScanDevices(c *fiber.Ctx) error {
 	out := make([]scanListEntry, 0, len(results))
 	for _, r := range results {
 		_, registered := h.reg.Get(config.NormalizeMAC(r.MAC))
+		excluded := false
+		if h.excluded != nil {
+			excluded = h.excluded(r.MAC)
+		}
 		out = append(out, scanListEntry{
 			MAC:        r.MAC,
 			Name:       r.Name,
 			RSSI:       r.RSSI,
 			Registered: registered,
+			Excluded:   excluded,
 		})
 	}
 	return c.JSON(fiber.Map{"success": true, "results": out})
@@ -117,6 +123,7 @@ type scanListEntry struct {
 	Name       string `json:"name"`
 	RSSI       int16  `json:"rssi"`
 	Registered bool   `json:"registered"`
+	Excluded   bool   `json:"excluded"`
 }
 
 func (h *Handlers) scanPrefix() string {

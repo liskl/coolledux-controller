@@ -46,6 +46,7 @@ func NewServer(ctrl *controller.Controller, cfg *config.Config, logger *slog.Log
 	h := NewHandlers(ctrl, logger)
 	h.reg = reg
 	h.scanTO = cfg.BLE.ScanTimeout
+	h.excluded = cfg.BLE.IsExcluded
 
 	// Service-level endpoints.
 	app.Get("/health", h.HealthCheck)

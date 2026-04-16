@@ -87,17 +87,16 @@ func main() {
 		logger.Info("BLE connected", "id", entry.ID)
 	}
 
-	// MQTT + REST still target the primary device during Stage 1. Stage-3
-	// and Stage-4 work will add per-device routes and per-device topics.
 	primary := reg.Primary()
 	if primary == nil {
 		logger.Warn("no devices registered; running with MQTT and REST disabled for device control")
 	}
 
+	// MQTT now drives all registered devices, publishing one discovery
+	// payload set per device and subscribing the command topics for each.
 	var mqttClient *mqtt.Client
 	if primary != nil {
-		mqttHandler := mqtt.NewCommandHandler(primary.Controller, logger)
-		mqttClient = mqtt.NewClient(&cfg.MQTT, primary.ID, mqttHandler, logger)
+		mqttClient = mqtt.NewClient(&cfg.MQTT, reg, logger)
 
 		logger.Info("connecting to MQTT broker", "broker", cfg.MQTT.Broker)
 		if err := mqttClient.Connect(ctx); err != nil {
@@ -107,6 +106,8 @@ func main() {
 		}
 	}
 
+	// REST serves legacy routes via the primary device and per-device
+	// routes under /device/:id/... backed by the registry.
 	var apiServer *api.Server
 	if primary != nil {
 		apiServer = api.NewServer(primary.Controller, cfg, logger, reg)

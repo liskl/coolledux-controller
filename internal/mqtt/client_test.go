@@ -2,13 +2,45 @@ package mqtt
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/liskl/coolledux-controller/internal/ble"
 	"github.com/liskl/coolledux-controller/internal/config"
+	"github.com/liskl/coolledux-controller/internal/controller"
+	"github.com/liskl/coolledux-controller/internal/registry"
 )
+
+// testRegistry builds a minimal registry with one disconnected device so
+// NewClient can loop over it. The controller is wired to a disconnected
+// BLE client; tests that exercise command handlers expect the
+// controller.* calls to return "not connected" errors.
+func testRegistry(id, mac string) *registry.Registry {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	bleClient := ble.NewClient(logger)
+	transport := ble.NewTransport(bleClient, logger)
+	cfg := &config.Config{
+		BLE:     config.BLEConfig{DeviceMAC: mac},
+		Display: config.DisplayConfig{Columns: 96, Rows: 16},
+	}
+	ctrl := controller.New(bleClient, transport, cfg, logger)
+
+	r := registry.New()
+	if err := r.Add(&registry.Entry{
+		ID:         id,
+		Name:       id,
+		MAC:        mac,
+		Client:     bleClient,
+		Transport:  transport,
+		Controller: ctrl,
+	}); err != nil {
+		panic(err)
+	}
+	return r
+}
 
 func TestNewClient(t *testing.T) {
 	cfg := &config.MQTTConfig{
@@ -18,8 +50,8 @@ func TestNewClient(t *testing.T) {
 		HADiscoveryPrefix: "homeassistant",
 		Keepalive:         30 * time.Second,
 	}
-	handler := NewCommandHandler(nil, slog.Default())
-	c := NewClient(cfg, "testdevice123", handler, slog.Default())
+	reg := testRegistry("testdevice123", "01:00:00:FB:A4:16")
+	c := NewClient(cfg, reg, slog.Default())
 
 	if c == nil {
 		t.Fatal("NewClient returned nil")
@@ -27,48 +59,54 @@ func TestNewClient(t *testing.T) {
 	if c.IsConnected() {
 		t.Error("new client should not be connected")
 	}
+	// One handler per registered device.
+	if len(c.handlers) != 1 {
+		t.Errorf("handlers len = %d, want 1", len(c.handlers))
+	}
+	if _, ok := c.handlers["testdevice123"]; !ok {
+		t.Error("expected handler for testdevice123")
+	}
 }
 
 func TestIsConnected_NewClient(t *testing.T) {
 	cfg := &config.MQTTConfig{}
-	c := NewClient(cfg, "dev1", nil, slog.Default())
+	reg := testRegistry("dev1", "01:00:00:FB:A4:16")
+	c := NewClient(cfg, reg, slog.Default())
 	if c.IsConnected() {
 		t.Error("IsConnected should return false for a new client")
 	}
 }
 
-func TestAvailabilityTopic(t *testing.T) {
-	cfg := &config.MQTTConfig{
-		TopicPrefix: "myprefix",
-	}
-	c := NewClient(cfg, "device42", nil, slog.Default())
+func TestDeviceAvailabilityTopic(t *testing.T) {
+	cfg := &config.MQTTConfig{TopicPrefix: "myprefix"}
+	reg := testRegistry("device42", "01:00:00:FB:A4:16")
+	c := NewClient(cfg, reg, slog.Default())
 
-	got := c.availabilityTopic()
+	got := c.deviceAvailabilityTopic("device42")
 	want := "myprefix/device42/availability"
 	if got != want {
-		t.Errorf("availabilityTopic: expected %q, got %q", want, got)
+		t.Errorf("deviceAvailabilityTopic: expected %q, got %q", want, got)
 	}
 }
 
-func TestAvailabilityTopic_DifferentPrefix(t *testing.T) {
-	cfg := &config.MQTTConfig{
-		TopicPrefix: "coolledux",
-	}
-	c := NewClient(cfg, "010000fba416", nil, slog.Default())
+func TestServiceAvailabilityTopic(t *testing.T) {
+	cfg := &config.MQTTConfig{TopicPrefix: "coolledux"}
+	reg := testRegistry("010000fba416", "01:00:00:FB:A4:16")
+	c := NewClient(cfg, reg, slog.Default())
 
-	got := c.availabilityTopic()
-	want := "coolledux/010000fba416/availability"
+	got := c.serviceAvailabilityTopic()
+	want := "coolledux/availability"
 	if got != want {
-		t.Errorf("availabilityTopic: expected %q, got %q", want, got)
+		t.Errorf("serviceAvailabilityTopic: expected %q, got %q", want, got)
 	}
 }
 
 func TestDisconnect_NotConnected(t *testing.T) {
 	cfg := &config.MQTTConfig{}
-	c := NewClient(cfg, "dev1", nil, slog.Default())
+	reg := testRegistry("dev1", "01:00:00:FB:A4:16")
+	c := NewClient(cfg, reg, slog.Default())
 
 	// Disconnect on a client that was never connected should not panic.
-	// mqttClient is nil, so Disconnect should return early.
 	c.Disconnect()
 }
 
@@ -78,7 +116,8 @@ func TestConnect_BadBroker(t *testing.T) {
 		ClientID:  "test-bad-broker",
 		Keepalive: 1 * time.Second,
 	}
-	c := NewClient(cfg, "dev1", nil, slog.Default())
+	reg := testRegistry("dev1", "01:00:00:FB:A4:16")
+	c := NewClient(cfg, reg, slog.Default())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -98,7 +137,8 @@ func TestConnect_ContextCancelled(t *testing.T) {
 		ClientID:  "test-ctx-cancel",
 		Keepalive: 1 * time.Second,
 	}
-	c := NewClient(cfg, "dev1", nil, slog.Default())
+	reg := testRegistry("dev1", "01:00:00:FB:A4:16")
+	c := NewClient(cfg, reg, slog.Default())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
@@ -117,7 +157,8 @@ func TestConnect_WithCredentials(t *testing.T) {
 		Password:  "pass",
 		Keepalive: 1 * time.Second,
 	}
-	c := NewClient(cfg, "dev1", nil, slog.Default())
+	reg := testRegistry("dev1", "01:00:00:FB:A4:16")
+	c := NewClient(cfg, reg, slog.Default())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -137,22 +178,49 @@ func TestNewClient_Fields(t *testing.T) {
 		HADiscoveryPrefix: "ha",
 		Keepalive:         30 * time.Second,
 	}
-	handler := NewCommandHandler(nil, slog.Default())
-	c := NewClient(cfg, "device123", handler, slog.Default())
+	reg := testRegistry("device123", "01:00:00:FB:A4:16")
+	c := NewClient(cfg, reg, slog.Default())
 
 	if c.cfg != cfg {
 		t.Error("cfg mismatch")
 	}
-	if c.deviceID != "device123" {
-		t.Errorf("deviceID = %q, want %q", c.deviceID, "device123")
-	}
-	if c.handler != handler {
-		t.Error("handler mismatch")
+	if c.reg != reg {
+		t.Error("registry mismatch")
 	}
 	if c.connected {
 		t.Error("should not be connected initially")
 	}
 	if c.mqttClient != nil {
 		t.Error("mqttClient should be nil before Connect")
+	}
+}
+
+func TestNewClient_MultipleDevices(t *testing.T) {
+	cfg := &config.MQTTConfig{TopicPrefix: "coolledux"}
+	reg := testRegistry("a", "01:00:00:FB:A4:16")
+	// Add a second device manually so we exercise the per-device handler map.
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	bleClient := ble.NewClient(logger)
+	transport := ble.NewTransport(bleClient, logger)
+	ctrl := controller.New(bleClient, transport, &config.Config{
+		BLE:     config.BLEConfig{DeviceMAC: "01:00:00:FB:A4:17"},
+		Display: config.DisplayConfig{Columns: 96, Rows: 16},
+	}, logger)
+	if err := reg.Add(&registry.Entry{
+		ID: "b", Name: "b", MAC: "01:00:00:FB:A4:17",
+		Client: bleClient, Transport: transport, Controller: ctrl,
+	}); err != nil {
+		t.Fatalf("add b: %v", err)
+	}
+
+	c := NewClient(cfg, reg, logger)
+	if len(c.handlers) != 2 {
+		t.Fatalf("handlers len = %d, want 2", len(c.handlers))
+	}
+	if _, ok := c.handlers["a"]; !ok {
+		t.Error("missing handler for a")
+	}
+	if _, ok := c.handlers["b"]; !ok {
+		t.Error("missing handler for b")
 	}
 }

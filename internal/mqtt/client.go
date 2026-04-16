@@ -10,26 +10,33 @@ import (
 	pahomqtt "github.com/eclipse/paho.mqtt.golang"
 
 	"github.com/liskl/coolledux-controller/internal/config"
+	"github.com/liskl/coolledux-controller/internal/registry"
 )
 
 // Client manages the MQTT connection, publishes HA discovery payloads, and
-// routes inbound command messages to the CommandHandler.
+// routes inbound command messages to per-device CommandHandlers.
 type Client struct {
 	mqttClient pahomqtt.Client
 	cfg        *config.MQTTConfig
-	deviceID   string
-	handler    *CommandHandler
+	reg        *registry.Registry
+	handlers   map[string]*CommandHandler
 	logger     *slog.Logger
 	connected  bool
 	mu         sync.Mutex
 }
 
-// NewClient creates an MQTT Client but does not connect yet.
-func NewClient(cfg *config.MQTTConfig, deviceID string, handler *CommandHandler, logger *slog.Logger) *Client {
+// NewClient creates an MQTT Client but does not connect yet. A separate
+// CommandHandler is built for each device in the registry so per-device
+// state (brightness, effect, etc.) is tracked independently.
+func NewClient(cfg *config.MQTTConfig, reg *registry.Registry, logger *slog.Logger) *Client {
+	handlers := make(map[string]*CommandHandler, reg.Len())
+	for _, entry := range reg.List() {
+		handlers[entry.ID] = NewCommandHandler(entry.Controller, logger.With("device", entry.ID))
+	}
 	return &Client{
 		cfg:      cfg,
-		deviceID: deviceID,
-		handler:  handler,
+		reg:      reg,
+		handlers: handlers,
 		logger:   logger,
 	}
 }
@@ -43,7 +50,10 @@ func (c *Client) Connect(ctx context.Context) error {
 		SetCleanSession(true).
 		SetAutoReconnect(true).
 		SetKeepAlive(c.cfg.Keepalive).
-		SetWill(c.availabilityTopic(), "offline", 1, true).
+		// Service-wide LWT covers the "service crashed" case. Per-device
+		// availability topics are updated manually on BLE connect/disconnect;
+		// the paho client only supports one LWT per connection.
+		SetWill(c.serviceAvailabilityTopic(), "offline", 1, true).
 		SetOnConnectHandler(func(_ pahomqtt.Client) {
 			c.logger.Info("mqtt connected", "broker", c.cfg.Broker)
 			c.mu.Lock()
@@ -82,13 +92,17 @@ func (c *Client) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Disconnect publishes offline status and cleanly disconnects from the broker.
+// Disconnect publishes offline status on every per-device availability
+// topic and on the service-wide topic, then cleanly disconnects.
 func (c *Client) Disconnect() {
 	if c.mqttClient == nil {
 		return
 	}
 
-	c.publish(c.availabilityTopic(), "offline", true)
+	for _, entry := range c.reg.List() {
+		c.publish(c.deviceAvailabilityTopic(entry.ID), "offline", true)
+	}
+	c.publish(c.serviceAvailabilityTopic(), "offline", true)
 	c.mqttClient.Disconnect(250)
 
 	c.mu.Lock()
@@ -98,9 +112,9 @@ func (c *Client) Disconnect() {
 	c.logger.Info("mqtt disconnected")
 }
 
-// PublishState publishes the current light state JSON to the state topic with retain.
-func (c *Client) PublishState(state []byte) error {
-	topic := fmt.Sprintf("%s/%s/state", c.cfg.TopicPrefix, c.deviceID)
+// PublishState publishes the light state JSON for a specific device.
+func (c *Client) PublishState(deviceID string, state []byte) error {
+	topic := fmt.Sprintf("%s/%s/state", c.cfg.TopicPrefix, deviceID)
 	token := c.mqttClient.Publish(topic, 1, true, state)
 	if !token.WaitTimeout(5 * time.Second) {
 		return fmt.Errorf("publish state timed out")
@@ -115,8 +129,8 @@ func (c *Client) IsConnected() bool {
 	return c.connected
 }
 
-// publishDiscovery sends all HA auto-discovery config payloads and publishes
-// "online" to the availability topic.
+// publishDiscovery sends the HA auto-discovery config payloads for every
+// registered device and flips availability topics to "online".
 func (c *Client) publishDiscovery() {
 	prefix := c.cfg.TopicPrefix
 	haPrefix := c.cfg.HADiscoveryPrefix
@@ -131,40 +145,57 @@ func (c *Client) publishDiscovery() {
 		BuildRemoteEnableSwitchConfig,
 	}
 
-	for _, build := range builders {
-		topic, payload := build(c.deviceID, prefix, haPrefix)
-		c.publish(topic, payload, true)
+	for _, entry := range c.reg.List() {
+		for _, build := range builders {
+			topic, payload := build(entry.ID, prefix, haPrefix)
+			c.publish(topic, payload, true)
+		}
+		c.publish(c.deviceAvailabilityTopic(entry.ID), "online", true)
 	}
+	c.publish(c.serviceAvailabilityTopic(), "online", true)
 
-	c.publish(c.availabilityTopic(), "online", true)
-	c.logger.Info("ha discovery published", "device_id", c.deviceID)
+	c.logger.Info("ha discovery published", "devices", c.reg.IDs())
 }
 
-// subscribeTopics subscribes to all command topics and wires them to handlers.
+// subscribeTopics subscribes to each device's command topics and wires
+// them to that device's CommandHandler.
 func (c *Client) subscribeTopics() {
 	prefix := c.cfg.TopicPrefix
 
+	for _, entry := range c.reg.List() {
+		handler, ok := c.handlers[entry.ID]
+		if !ok {
+			c.logger.Warn("no handler for device during subscribe", "id", entry.ID)
+			continue
+		}
+		c.subscribeDeviceTopics(prefix, entry.ID, handler)
+	}
+}
+
+// subscribeDeviceTopics wires the eight MQTT command topics for one device.
+func (c *Client) subscribeDeviceTopics(prefix, deviceID string, handler *CommandHandler) {
 	type sub struct {
 		suffix  string
 		handler func([]byte) error
-		publish bool // publish state after handling
+		publish bool // republish light state after handling
 	}
-
 	subs := []sub{
-		{suffix: "set", handler: c.handler.HandleLightCommand, publish: true},
-		{suffix: "text/set", handler: c.handler.HandleTextCommand},
-		{suffix: "image/set", handler: c.handler.HandleImageCommand},
-		{suffix: "gif/set", handler: c.handler.HandleGIFCommand},
-		{suffix: "color/mode/set", handler: c.handler.HandleColorModeCommand},
-		{suffix: "color/speed/set", handler: c.handler.HandleColorSpeedCommand},
-		{suffix: "show_id/set", handler: c.handler.HandleShowDeviceIDCommand},
-		{suffix: "remote/set", handler: c.handler.HandleRemoteCommand},
+		{suffix: "set", handler: handler.HandleLightCommand, publish: true},
+		{suffix: "text/set", handler: handler.HandleTextCommand},
+		{suffix: "image/set", handler: handler.HandleImageCommand},
+		{suffix: "gif/set", handler: handler.HandleGIFCommand},
+		{suffix: "color/mode/set", handler: handler.HandleColorModeCommand},
+		{suffix: "color/speed/set", handler: handler.HandleColorSpeedCommand},
+		{suffix: "show_id/set", handler: handler.HandleShowDeviceIDCommand},
+		{suffix: "remote/set", handler: handler.HandleRemoteCommand},
 	}
 
 	for _, s := range subs {
-		topic := fmt.Sprintf("%s/%s/%s", prefix, c.deviceID, s.suffix)
+		topic := fmt.Sprintf("%s/%s/%s", prefix, deviceID, s.suffix)
 		publishState := s.publish
 		handle := s.handler
+		id := deviceID
+		h := handler
 
 		token := c.mqttClient.Subscribe(topic, 1, func(_ pahomqtt.Client, msg pahomqtt.Message) {
 			c.logger.Info("mqtt message received", "topic", msg.Topic())
@@ -173,7 +204,7 @@ func (c *Client) subscribeTopics() {
 				return
 			}
 			if publishState {
-				if err := c.PublishState(c.handler.GetCurrentState()); err != nil {
+				if err := c.PublishState(id, h.GetCurrentState()); err != nil {
 					c.logger.Error("failed to publish state", "error", err)
 				}
 			}
@@ -192,13 +223,20 @@ func (c *Client) subscribeTopics() {
 	}
 }
 
-// availabilityTopic returns the LWT / availability topic for this device.
-func (c *Client) availabilityTopic() string {
-	return fmt.Sprintf("%s/%s/availability", c.cfg.TopicPrefix, c.deviceID)
+// serviceAvailabilityTopic is the single LWT target; flips to "offline"
+// automatically if the broker loses us without a clean disconnect.
+func (c *Client) serviceAvailabilityTopic() string {
+	return fmt.Sprintf("%s/availability", c.cfg.TopicPrefix)
+}
+
+// deviceAvailabilityTopic is the per-device availability topic HA entities
+// watch. Published manually on connect/disconnect; not covered by LWT.
+func (c *Client) deviceAvailabilityTopic(deviceID string) string {
+	return fmt.Sprintf("%s/%s/availability", c.cfg.TopicPrefix, deviceID)
 }
 
 // publish is a small helper that publishes a message and logs errors.
-func (c *Client) publish(topic string, payload interface{}, retain bool) {
+func (c *Client) publish(topic string, payload any, retain bool) {
 	token := c.mqttClient.Publish(topic, 1, retain, payload)
 	if !token.WaitTimeout(5 * time.Second) {
 		c.logger.Error("publish timed out", "topic", topic)

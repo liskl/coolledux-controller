@@ -536,6 +536,46 @@ func TestHandleTextCommand_Success_Connected(t *testing.T) {
 	}
 }
 
+func TestHandleShowDeviceIDCommand_Connected(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+	}{
+		{"on", "ON"},
+		{"off", "OFF"},
+		{"lowercase on", "on"},
+		{"whitespace", "  OFF  "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, transport, client := connectedHandler()
+			defer client.OverrideConnectedForTest(false)
+			go func() { transport.InjectResponseForTest(fakeMQTTResponse(protocol.RESPONSE_TYPE_SET_DEVICE_INFO)) }()
+			if err := h.HandleShowDeviceIDCommand([]byte(tt.payload)); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestHandleRemoteCommand_Connected(t *testing.T) {
+	h, transport, client := connectedHandler()
+	defer client.OverrideConnectedForTest(false)
+	go func() { transport.InjectResponseForTest(fakeMQTTResponse(protocol.RESPONSE_TYPE_SET_DEVICE_INFO)) }()
+	if err := h.HandleRemoteCommand([]byte("ON")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestHandleSwitchToggle_RejectsBadPayload(t *testing.T) {
+	h := testHandler()
+	for _, bad := range []string{"", "maybe", "TRUE", "1", "ON\nextra"} {
+		if err := h.HandleShowDeviceIDCommand([]byte(bad)); err == nil {
+			t.Errorf("payload %q: expected error, got nil", bad)
+		}
+	}
+}
+
 func TestParseHexColor(t *testing.T) {
 	tests := []struct {
 		name    string

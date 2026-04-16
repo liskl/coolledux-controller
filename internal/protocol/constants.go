@@ -82,6 +82,7 @@ const (
 	RESPONSE_TYPE_PASSWORD_VERIFY byte = 0x0D
 	RESPONSE_TYPE_PASSWORD_SET    byte = 0x0E
 	RESPONSE_TYPE_COLOR           byte = 0x13
+	RESPONSE_TYPE_SET_DEVICE_INFO byte = 0x1E // Echoed by 0x1E toggles; shape [0x1E, state_byte].
 	RESPONSE_TYPE_DEVICE_INFO     byte = 0x1F
 )
 

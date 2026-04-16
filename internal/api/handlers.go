@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"log/slog"
@@ -229,6 +230,31 @@ func (h *Handlers) ResetDevice(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
 			Success: false,
 			Error:   err.Error(),
+		})
+	}
+	return c.JSON(SuccessResponse{Success: true})
+}
+
+// SetShowDeviceID toggles whether the panel displays its device ID.
+func (h *Handlers) SetShowDeviceID(c *fiber.Ctx) error {
+	return h.handleDeviceInfoToggle(c, h.ctrl.SetShowDeviceID)
+}
+
+// SetRemote toggles the panel's remote-control mode.
+func (h *Handlers) SetRemote(c *fiber.Ctx) error {
+	return h.handleDeviceInfoToggle(c, h.ctrl.SetRemoteEnabled)
+}
+
+func (h *Handlers) handleDeviceInfoToggle(c *fiber.Ctx, setter func(ctx context.Context, on bool) error) error {
+	var req DeviceInfoToggleRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+			Success: false, Error: "invalid request body: " + err.Error(),
+		})
+	}
+	if err := setter(c.Context(), req.On); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{
+			Success: false, Error: err.Error(),
 		})
 	}
 	return c.JSON(SuccessResponse{Success: true})

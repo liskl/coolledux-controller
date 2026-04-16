@@ -152,6 +152,11 @@ type ColorRequest struct {
 	Color string `json:"color"` // "#RRGGBB" hex format
 }
 
+// DeviceInfoToggleRequest flips one of the 0x1E boolean settings.
+type DeviceInfoToggleRequest struct {
+	On bool `json:"on"`
+}
+
 // --- Response types ---
 
 // SuccessResponse is the standard response for mutating operations.

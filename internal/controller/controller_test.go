@@ -975,6 +975,55 @@ func TestSetFlip_Connected(t *testing.T) {
 	}
 }
 
+func TestSetShowDeviceID_ConsumesACK(t *testing.T) {
+	// The 0x1E response frame must be drained here, otherwise a following
+	// GetDeviceInfo would pick it up instead of its own 0x1F response.
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+
+	go func() { transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_SET_DEVICE_INFO)) }()
+
+	if err := ctrl.SetShowDeviceID(context.Background(), true); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSetShowDeviceID_Off(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+
+	go func() { transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_SET_DEVICE_INFO)) }()
+
+	if err := ctrl.SetShowDeviceID(context.Background(), false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSetRemoteEnabled_ConsumesACK(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+
+	go func() { transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_SET_DEVICE_INFO)) }()
+
+	if err := ctrl.SetRemoteEnabled(context.Background(), true); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSetDeviceInfoFlag_RejectsWrongResponseType(t *testing.T) {
+	// If the device returned a 0x1F (device-info) frame where we expected
+	// a 0x1E ACK, checkResponse should fail rather than silently succeed.
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+
+	go func() { transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_DEVICE_INFO)) }()
+
+	err := ctrl.SetShowDeviceID(context.Background(), true)
+	if err == nil {
+		t.Fatal("expected error on wrong response type, got nil")
+	}
+}
+
 func TestSyncTime_Connected(t *testing.T) {
 	ctrl, transport, client := connectedController()
 	defer client.OverrideConnectedForTest(false)

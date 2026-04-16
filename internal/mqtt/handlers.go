@@ -219,6 +219,37 @@ func (h *CommandHandler) HandleColorSpeedCommand(payload []byte) error {
 	return nil
 }
 
+// HandleShowDeviceIDCommand processes the "ON"/"OFF" payload for the
+// show-device-id switch topic.
+func (h *CommandHandler) HandleShowDeviceIDCommand(payload []byte) error {
+	return h.handleSwitchToggle(payload, h.ctrl.SetShowDeviceID, "show_id")
+}
+
+// HandleRemoteCommand processes the "ON"/"OFF" payload for the remote
+// switch topic.
+func (h *CommandHandler) HandleRemoteCommand(payload []byte) error {
+	return h.handleSwitchToggle(payload, h.ctrl.SetRemoteEnabled, "remote")
+}
+
+// handleSwitchToggle parses an HA-style "ON"/"OFF" payload and routes it
+// to the given controller setter. Any other payload is an error.
+func (h *CommandHandler) handleSwitchToggle(payload []byte, setter func(ctx context.Context, on bool) error, label string) error {
+	val := strings.TrimSpace(string(payload))
+	var on bool
+	switch strings.ToUpper(val) {
+	case "ON":
+		on = true
+	case "OFF":
+		on = false
+	default:
+		return fmt.Errorf("%s: expected ON/OFF, got %q", label, val)
+	}
+	if err := setter(context.Background(), on); err != nil {
+		return fmt.Errorf("setting %s: %w", label, err)
+	}
+	return nil
+}
+
 // GetCurrentState returns the current light state as JSON bytes.
 func (h *CommandHandler) GetCurrentState() []byte {
 	h.mu.Lock()

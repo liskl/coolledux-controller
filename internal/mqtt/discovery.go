@@ -146,6 +146,47 @@ func BuildColorSpeedNumberConfig(deviceID, topicPrefix, haPrefix string) (string
 	return topic, payload
 }
 
+// BuildShowDeviceIDSwitchConfig builds the HA auto-discovery payload for
+// a switch entity that toggles the 0x1E/0x01 "show device ID" flag.
+func BuildShowDeviceIDSwitchConfig(deviceID, topicPrefix, haPrefix string) (string, []byte) {
+	return buildDeviceInfoSwitch(deviceID, topicPrefix, haPrefix, "show_id",
+		"CoolLEDUX Show Device ID", "mdi:identifier")
+}
+
+// BuildRemoteEnableSwitchConfig builds the HA auto-discovery payload for
+// a switch entity that toggles the 0x1E/0x02 "remote enable" flag.
+func BuildRemoteEnableSwitchConfig(deviceID, topicPrefix, haPrefix string) (string, []byte) {
+	return buildDeviceInfoSwitch(deviceID, topicPrefix, haPrefix, "remote",
+		"CoolLEDUX Remote", "mdi:remote")
+}
+
+// buildDeviceInfoSwitch shares the common boilerplate between the two
+// 0x1E switches. slug becomes the topic segment and the entity suffix;
+// name is the HA-facing label; icon is a Material Design Icons ref.
+func buildDeviceInfoSwitch(deviceID, topicPrefix, haPrefix, slug, name, icon string) (string, []byte) {
+	topic := fmt.Sprintf("%s/switch/coolledux_%s_%s/config", haPrefix, deviceID, slug)
+
+	cfg := SwitchConfig{
+		Name:                name,
+		UniqueID:            fmt.Sprintf("coolledux_%s_%s", deviceID, slug),
+		ObjectID:            fmt.Sprintf("coolledux_sign_%s", slug),
+		CommandTopic:        fmt.Sprintf("%s/%s/%s/set", topicPrefix, deviceID, slug),
+		StateTopic:          fmt.Sprintf("%s/%s/%s/state", topicPrefix, deviceID, slug),
+		AvailabilityTopic:   fmt.Sprintf("%s/%s/availability", topicPrefix, deviceID),
+		PayloadAvailable:    "online",
+		PayloadNotAvailable: "offline",
+		PayloadOn:           "ON",
+		PayloadOff:          "OFF",
+		StateOn:             "ON",
+		StateOff:            "OFF",
+		Icon:                icon,
+		Device:              refDevice(deviceID),
+	}
+
+	payload, _ := json.Marshal(cfg)
+	return topic, payload
+}
+
 // BuildBrightnessSensorConfig builds the HA auto-discovery payload for the
 // brightness sensor entity.
 func BuildBrightnessSensorConfig(deviceID, topicPrefix, haPrefix string) (string, []byte) {

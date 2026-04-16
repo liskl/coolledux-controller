@@ -908,6 +908,50 @@ func TestSetColor_InvalidBody(t *testing.T) {
 	}
 }
 
+func TestSetShowDeviceID_Disconnected(t *testing.T) {
+	srv := testServer(t)
+	for _, body := range []string{`{"on":true}`, `{"on":false}`} {
+		req, _ := http.NewRequest(http.MethodPost, "/device/show-id", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := srv.app.Test(req, -1)
+		if err != nil {
+			t.Fatalf("body=%q: %v", body, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusInternalServerError {
+			t.Errorf("body=%q: expected 500, got %d", body, resp.StatusCode)
+		}
+	}
+}
+
+func TestSetShowDeviceID_InvalidBody(t *testing.T) {
+	srv := testServer(t)
+	req, _ := http.NewRequest(http.MethodPost, "/device/show-id", strings.NewReader("not json"))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := srv.app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("executing request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestSetRemote_Disconnected(t *testing.T) {
+	srv := testServer(t)
+	req, _ := http.NewRequest(http.MethodPost, "/device/remote", strings.NewReader(`{"on":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := srv.app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("executing request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", resp.StatusCode)
+	}
+}
+
 func TestCORSMiddleware_EmptyOrigins(t *testing.T) {
 	cfg := testConfig()
 	cfg.API.CORSOrigins = []string{}

@@ -30,6 +30,8 @@ Commands (subscribed by service):
   coolledux/{device_id}/gif/set            JSON: gif_base64, frame_duration, fit, x, y, width, height
   coolledux/{device_id}/color/mode/set     plain text: "off" or a mode ID (e.g. "10")
   coolledux/{device_id}/color/speed/set    plain text: integer 1-10
+  coolledux/{device_id}/show_id/set        plain text: "ON" or "OFF"
+  coolledux/{device_id}/remote/set         plain text: "ON" or "OFF"
 ```
 
 ## Home Assistant Auto-Discovery Payloads
@@ -49,6 +51,10 @@ Published with `retain: true` on MQTT connect/reconnect.
 
 **Number entity** (`homeassistant/number/coolledux_{device_id}_color_speed/config`):
 - Range 1-10, step 1, slider UI
+
+**Switch entities**:
+- `homeassistant/switch/coolledux_{device_id}_show_id/config` — toggles the 0x1E/0x01 "show device ID" flag.
+- `homeassistant/switch/coolledux_{device_id}_remote/config` — toggles the 0x1E/0x02 "remote enable" flag.
 
 ## Last Will and Testament
 
@@ -73,6 +79,22 @@ On successful startup, publish `online` to the same topic with retain.
 ```
 
 Maps `state` ON/OFF to power, `brightness` to brightness command, `effect` to TextShowMode.
+
+### Device Info Toggles (`coolledux/{device_id}/show_id/set`, `coolledux/{device_id}/remote/set`)
+
+Plain-text payload (not JSON), HA switch convention:
+
+```
+ON
+```
+
+or
+
+```
+OFF
+```
+
+`show_id` maps to BLE command `0x1E` subtype `0x01`; `remote` maps to `0x1E` subtype `0x02`. Both affect the panel's idle/default scroll only — no visible change while an active program is running.
 
 ### Color Mode (`coolledux/{device_id}/color/mode/set`)
 

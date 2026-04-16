@@ -76,6 +76,25 @@ type NumberConfig struct {
 	Device              HADevice `json:"device"`
 }
 
+// SwitchConfig is the HA auto-discovery payload for a switch entity.
+// Used for the 0x1E device-info toggles (show-device-id, remote-enable).
+type SwitchConfig struct {
+	Name                string   `json:"name"`
+	UniqueID            string   `json:"unique_id"`
+	ObjectID            string   `json:"object_id"`
+	CommandTopic        string   `json:"command_topic"`
+	StateTopic          string   `json:"state_topic"`
+	AvailabilityTopic   string   `json:"availability_topic"`
+	PayloadAvailable    string   `json:"payload_available"`
+	PayloadNotAvailable string   `json:"payload_not_available"`
+	PayloadOn           string   `json:"payload_on"`
+	PayloadOff          string   `json:"payload_off"`
+	StateOn             string   `json:"state_on"`
+	StateOff            string   `json:"state_off"`
+	Icon                string   `json:"icon,omitempty"`
+	Device              HADevice `json:"device"`
+}
+
 // SensorConfig is the HA auto-discovery payload for a sensor entity.
 type SensorConfig struct {
 	Name              string   `json:"name"`

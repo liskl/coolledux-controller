@@ -114,6 +114,22 @@ Verified working end-to-end: base64 PNG -> decode -> resize -> RGB444 -> LZSS ->
 
 `raw: true` opts into content type `0x0C` (firmware v30+): the GIF is uploaded verbatim and decoded on-device. `frame_duration` and `fit` are ignored in this mode because the firmware handles timing and scaling. Older firmware ACKs the upload but renders nothing, so only set this when you know the device supports it. Default `false` keeps the frame-by-frame `0x03` path that works on all firmware revisions.
 
+### POST /device/show-id
+
+Toggles whether the panel displays its device identifier. Maps to BLE command `0x1E` subtype `0x01`. Hardware-validated on 16x96; affects the default/idle scroll text, not any actively displayed program.
+
+```json
+{"on": true}
+```
+
+### POST /device/remote
+
+Toggles the panel's remote-control mode. Maps to BLE command `0x1E` subtype `0x02`. Same idle-only visibility as `/device/show-id`.
+
+```json
+{"on": false}
+```
+
 ### POST /display/color
 
 Sets the global tint color applied to text/content. Maps to BLE command `0x13` subtype `0x01` (RGB444 packed).

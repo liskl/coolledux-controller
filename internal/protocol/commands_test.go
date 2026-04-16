@@ -367,3 +367,26 @@ func TestBuildColorCommandMatchesAPKPattern(t *testing.T) {
 		t.Errorf("header = % X, want % X", payload[:4], want)
 	}
 }
+
+func TestBuildSetDeviceInfoCommand(t *testing.T) {
+	tests := []struct {
+		name    string
+		subtype byte
+		on      bool
+		want    []byte
+	}{
+		{"show_id on", DEVICE_INFO_SUBTYPE_SHOW_ID, true, []byte{CMD_SET_DEVICE_INFO, 0x01, 0x01}},
+		{"show_id off", DEVICE_INFO_SUBTYPE_SHOW_ID, false, []byte{CMD_SET_DEVICE_INFO, 0x01, 0x00}},
+		{"remote on", DEVICE_INFO_SUBTYPE_REMOTE, true, []byte{CMD_SET_DEVICE_INFO, 0x02, 0x01}},
+		{"remote off", DEVICE_INFO_SUBTYPE_REMOTE, false, []byte{CMD_SET_DEVICE_INFO, 0x02, 0x00}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			frame := BuildSetDeviceInfoCommand(tt.subtype, tt.on)
+			payload := roundTripCommand(t, frame)
+			if !bytes.Equal(payload, tt.want) {
+				t.Errorf("got % X, want % X", payload, tt.want)
+			}
+		})
+	}
+}

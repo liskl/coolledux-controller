@@ -197,14 +197,11 @@ func (c *Controller) SetColorMode(ctx context.Context, mode int) error {
 }
 
 // SetShowDeviceID toggles whether the panel displays its device
-// identifier (0x1E/0x01). Current value is read back via GetDeviceInfo.
+// identifier (0x1E/0x01). The panel acknowledges with a 0x1E-type
+// response that we consume here so it doesn't leak into a subsequent
+// GetDeviceInfo call.
 func (c *Controller) SetShowDeviceID(ctx context.Context, on bool) error {
-	cmd := protocol.BuildSetDeviceInfoCommand(protocol.DEVICE_INFO_SUBTYPE_SHOW_ID, on)
-	if err := c.transport.SendCommand(ctx, cmd); err != nil {
-		return fmt.Errorf("setting show-device-id: %w", err)
-	}
-	c.logger.Info("show device id toggled", "on", on)
-	return nil
+	return c.setDeviceInfoFlag(ctx, protocol.DEVICE_INFO_SUBTYPE_SHOW_ID, on, "show device id")
 }
 
 // SetRemoteEnabled toggles the panel's remote-control mode (0x1E/0x02).
@@ -212,11 +209,22 @@ func (c *Controller) SetShowDeviceID(ctx context.Context, on bool) error {
 // acceptance?) is unknown; see docs/specs/protocol-ble.md "Device Info
 // Toggles" for probe findings.
 func (c *Controller) SetRemoteEnabled(ctx context.Context, on bool) error {
-	cmd := protocol.BuildSetDeviceInfoCommand(protocol.DEVICE_INFO_SUBTYPE_REMOTE, on)
-	if err := c.transport.SendCommand(ctx, cmd); err != nil {
-		return fmt.Errorf("setting remote-enabled: %w", err)
+	return c.setDeviceInfoFlag(ctx, protocol.DEVICE_INFO_SUBTYPE_REMOTE, on, "remote")
+}
+
+// setDeviceInfoFlag sends a 0x1E toggle and drains the 0x1E ACK the
+// firmware echoes back. Without this drain, the next GetDeviceInfo
+// call picks up the stale 0x1E frame instead of its own 0x1F response.
+func (c *Controller) setDeviceInfoFlag(ctx context.Context, subtype byte, on bool, label string) error {
+	cmd := protocol.BuildSetDeviceInfoCommand(subtype, on)
+	resp, err := c.transport.SendAndWait(ctx, cmd, protocol.CommandTimeout)
+	if err != nil {
+		return fmt.Errorf("setting %s: %w", label, err)
 	}
-	c.logger.Info("remote toggled", "on", on)
+	if err := checkResponse(resp, protocol.RESPONSE_TYPE_SET_DEVICE_INFO); err != nil {
+		return fmt.Errorf("%s toggle rejected: %w", label, err)
+	}
+	c.logger.Info(label+" toggled", "on", on)
 	return nil
 }
 

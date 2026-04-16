@@ -126,38 +126,118 @@ func TestBuildFlipCommand(t *testing.T) {
 	}
 }
 
-func TestBuildPasswordCommand(t *testing.T) {
-	tests := []struct {
-		name     string
-		password string
-		verify   bool
-		wantCmd  byte
-		wantOp   byte
-	}{
-		{"verify", "1234", true, CMD_CHECK_PASSWORD, PasswordOpVerify},
-		{"set", "abcdef", false, CMD_SET_PASSWORD, PasswordOpSet},
+func TestBuildPasswordCommand_ExactBytes(t *testing.T) {
+	// Fixed key makes the XOR output deterministic so we can assert a
+	// byte-exact packet. Password "1234" → nibbles [1, 2, 3, 4], key
+	// 0xA5 → encoded nibbles [0xA4, 0xA7, 0xA6, 0xA1], checksum XOR
+	// over those four = 0xA4 ^ 0xA7 ^ 0xA6 ^ 0xA1 = 0x04.
+	payload, err := buildPasswordCommand(CMD_CHECK_PASSWORD, "1234", 0xA5)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
+	inner := roundTripCommand(t, payload)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			frame := BuildPasswordCommand(tt.password, tt.verify)
-			payload := roundTripCommand(t, frame)
+	want := []byte{CMD_CHECK_PASSWORD, 0xA5, 0xA4, 0xA7, 0xA6, 0xA1, 0x04}
+	if !bytes.Equal(inner, want) {
+		t.Errorf("got  % X\nwant % X", inner, want)
+	}
+}
 
-			if payload[0] != tt.wantCmd {
-				t.Errorf("command code = 0x%02X, want 0x%02X", payload[0], tt.wantCmd)
-			}
-			if payload[1] != tt.wantOp {
-				t.Errorf("op = 0x%02X, want 0x%02X", payload[1], tt.wantOp)
-			}
+func TestBuildPasswordCommand_SetAndCheckDifferOnlyInCmdByte(t *testing.T) {
+	check, err := buildPasswordCommand(CMD_CHECK_PASSWORD, "abcdef", 0x42)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	set, err := buildPasswordCommand(CMD_SET_PASSWORD, "abcdef", 0x42)
+	if err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	innerCheck := roundTripCommand(t, check)
+	innerSet := roundTripCommand(t, set)
 
-			// The password bytes follow the op byte, before the CRC.
-			pwBytes := payload[2 : len(payload)-4]
-			if !bytes.Equal(pwBytes, []byte(tt.password)) {
-				t.Errorf("password bytes = %q, want %q", pwBytes, tt.password)
-			}
+	if innerCheck[0] != CMD_CHECK_PASSWORD {
+		t.Errorf("check cmd = 0x%02X, want 0x0D", innerCheck[0])
+	}
+	if innerSet[0] != CMD_SET_PASSWORD {
+		t.Errorf("set cmd = 0x%02X, want 0x0E", innerSet[0])
+	}
+	// Everything after the cmd byte (key + nibbles + checksum) should
+	// match since they share the same password and key.
+	if !bytes.Equal(innerCheck[1:], innerSet[1:]) {
+		t.Errorf("tail differs: check=% X set=% X", innerCheck[1:], innerSet[1:])
+	}
+}
 
-			verifyCRC(t, payload)
-		})
+func TestBuildPasswordCommand_ChecksumIsXOROverEncodedNibbles(t *testing.T) {
+	// The APK's checksum explicitly skips the cmd and key bytes
+	// (see CoolledUXUtils.java:2782: "for (int i2 = 2; i2 < ...)").
+	// A bug that XOR'd the key or cmd in would still type-check and
+	// pass most byte-range tests, so we assert the rule directly.
+	payload, err := buildPasswordCommand(CMD_SET_PASSWORD, "deadbeef", 0xC3)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	inner := roundTripCommand(t, payload)
+	// inner = [cmd][key][n0..nN-1][checksum]
+	nibbles := inner[2 : len(inner)-1]
+	storedChecksum := inner[len(inner)-1]
+	var want byte
+	for _, b := range nibbles {
+		want ^= b
+	}
+	if storedChecksum != want {
+		t.Errorf("checksum = 0x%02X, want 0x%02X (XOR over %X)", storedChecksum, want, nibbles)
+	}
+}
+
+func TestBuildPasswordCommand_RejectsNonHex(t *testing.T) {
+	if _, err := BuildCheckPasswordCommand("12g4"); err == nil {
+		t.Error("expected error on non-hex char")
+	}
+	if _, err := BuildSetPasswordCommand("hello"); err == nil {
+		t.Error("expected error on non-hex chars")
+	}
+}
+
+func TestBuildPasswordCommand_RejectsOutOfRangeLength(t *testing.T) {
+	if _, err := BuildCheckPasswordCommand("ab"); err == nil {
+		t.Error("expected error on too-short password")
+	}
+	long := "0123456789abcdef0123" // 20 chars
+	if _, err := BuildCheckPasswordCommand(long); err == nil {
+		t.Error("expected error on too-long password")
+	}
+}
+
+func TestBuildPasswordCommand_UppercaseHexAccepted(t *testing.T) {
+	lower, err := buildPasswordCommand(CMD_CHECK_PASSWORD, "abcd", 0x00)
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	upper, err := buildPasswordCommand(CMD_CHECK_PASSWORD, "ABCD", 0x00)
+	if err != nil {
+		t.Fatalf("upper: %v", err)
+	}
+	if !bytes.Equal(roundTripCommand(t, lower), roundTripCommand(t, upper)) {
+		t.Error("lowercase and uppercase hex should produce identical packets")
+	}
+}
+
+func TestBuildPasswordCommand_PublicWrappersUseRandomKey(t *testing.T) {
+	// Two successive calls with the same password should produce
+	// different packets because the XOR key is randomized per call.
+	a, err := BuildCheckPasswordCommand("1234")
+	if err != nil {
+		t.Fatalf("a: %v", err)
+	}
+	b, err := BuildCheckPasswordCommand("1234")
+	if err != nil {
+		t.Fatalf("b: %v", err)
+	}
+	// Extremely unlikely to collide: 1/256 on any given run. If this
+	// ever flakes, the test body can be extended to retry once.
+	if bytes.Equal(a, b) {
+		t.Error("two random-key calls produced identical packets — rand broken?")
 	}
 }
 

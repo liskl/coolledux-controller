@@ -73,8 +73,8 @@ Every command is built by appending the command byte and payload to a list, then
 | `0x0B` | Get timer switch | Empty | `getTimerSwitch` | 4643 | verified |
 | `0x0C` | Set mirror (boolean) | `[0x00]` off / `[0x01]` on | `getSetMirror` | 4427 | verified |
 | `0x0C` | Set rotate (0..3) | `[mode:1]` | `setRotate` | 4861 | verified |
-| `0x0D` | Check password | `[random:1] { digit ^ random } * n [xorChecksum:1]` | `getCheckPasswordData` | 2770 | untested |
-| `0x0E` | Set password | `[random:1] { digit ^ random } * n [xorChecksum:1]` | `getSetPasswordData` | 4438 | untested |
+| `0x0D` | Check password | `[random:1] { digit ^ random } * n [xorChecksum:1]` | `getCheckPasswordData` | 2770 | verified (check path); see "Password Commands" |
+| `0x0E` | Set password | `[random:1] { digit ^ random } * n [xorChecksum:1]` | `getSetPasswordData` | 4438 | builder verified; set-path untested on hardware (risk: lockout) |
 | `0x0F` | Countdown status | `[0x01]` | `getCountDownStatus` | 2811 | verified |
 | `0x0F` | Countdown set value | `[0x02][hour:2 BE][min:2 BE][sec:2 BE]` (each as uint16) | `getCountDownReset` | 2789 | verified |
 | `0x0F` | Countdown start/stop | `[0x03][0x01 or 0x00]` | `getCountDownStartOrStop` | 2799 | verified |
@@ -502,6 +502,27 @@ Command body is `[0x1E, subtype, 0x00 \| 0x01]` stream-framed, no CRC. The devic
 - Both subtypes are accepted and round-trip through the `0x1F` device-info response. Baseline `show_device_id=true, remote_enabled=true` → `false` → `true` observed on both fields during probing, so there is no sticky one-way interlock (an earlier-looking "stuck false" pattern on remote_enabled turned out to be a state-read race, see below).
 - No visible change on the panel while a program is actively displaying content. These toggles almost certainly affect the default/idle scroll (the `"1. CoolLED"` fallback) rather than an active program's rendering. Verifying that specifically would require clearing the program and observing idle state.
 - The `0x1E` response frame is not silently consumed anywhere — it arrives on the same notification pipe as the `0x1F` device-info response. Our current `GetDeviceInfo` parser rejects any frame whose first byte is not `0x1F`, so a stale `0x1E` ACK from a previous toggle can cause an unrelated `/device/info` call to return `"not a device info response: type 0x1E"`. Implementation bead `5i7` needs to either filter `0x1E` frames at the transport layer or make the device-info parser tolerant of them.
+
+## Password Commands (`0x0D`, `0x0E`)
+
+The CoolLED 1248 app sends XOR-encoded hex-digit passwords via `getCheckPasswordData` (`CoolledUXUtils.java:2770`) and `getSetPasswordData` (`:4438`). Layout after the stream frame:
+
+```
+[cmd][xorKey][nibble[0]^xorKey]...[nibble[N-1]^xorKey][xorChecksum]
+```
+
+- `cmd`: `0x0D` for check, `0x0E` for set.
+- `xorKey`: random byte chosen per call.
+- `nibble[i]`: the i-th password character parsed as a single hex digit (0-9, a-f, case-insensitive), so the allowed alphabet is hex only.
+- `xorChecksum`: XOR of every encoded nibble byte (NOT including `cmd` or `xorKey`).
+
+No CRC, no BLE-header wrapper. Response shape is `[cmd, status]` where `status == 0` means success; any nonzero byte is a rejection.
+
+### Hardware findings (2026-04-16, 16x96 v10)
+
+- The check path (`0x0D`) is fully verified end-to-end: builder byte format matches, panel parses and responds on every attempt.
+- This specific panel accepts **4-character and 6-character hex passwords with any value**; other lengths (5, 7, 8, 10, 12, 14, 16) return `status != 0`. Most likely reading: there's no password stored, so the firmware's length check succeeds for the sizes it cares about (probably user-PIN and admin-PIN) and the actual value isn't consulted.
+- The set path (`0x0E`) is NOT hardware-validated — sending a `setPassword` with a value we don't remember can lock us out of the panel, so we only ship the builder and code-test it. If you're testing on a disposable panel, `/device/:id/password/set` is available.
 
 ## Drive State (`0x1C/0x01`, `0x1C/0x02`) — not supported on 16x96
 

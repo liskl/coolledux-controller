@@ -68,6 +68,8 @@ func NewServer(ctrl *controller.Controller, cfg *config.Config, logger *slog.Log
 	app.Post("/device/:id/reset", h.ResetDevice)
 	app.Post("/device/:id/show-id", h.SetShowDeviceID)
 	app.Post("/device/:id/remote", h.SetRemote)
+	app.Post("/device/:id/password/check", h.CheckPassword)
+	app.Post("/device/:id/password/set", h.SetPassword)
 	app.Post("/device/:id/text", h.DisplayText)
 	app.Post("/device/:id/image", h.DisplayImage)
 	app.Post("/device/:id/gif", h.DisplayGIF)

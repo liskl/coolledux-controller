@@ -386,6 +386,56 @@ func (h *Handlers) ResetDevice(c *fiber.Ctx) error {
 	return c.JSON(SuccessResponse{Success: true})
 }
 
+// CheckPassword verifies a panel password (0x0D). Returns 200 on
+// verified, 401 on rejection by the device, 500 on transport errors,
+// 400 on invalid input (bad hex, wrong length).
+func (h *Handlers) CheckPassword(c *fiber.Ctx) error {
+	return h.handlePasswordRequest(c, true)
+}
+
+// SetPassword writes a new panel password (0x0E). Same response shape
+// as CheckPassword.
+func (h *Handlers) SetPassword(c *fiber.Ctx) error {
+	return h.handlePasswordRequest(c, false)
+}
+
+func (h *Handlers) handlePasswordRequest(c *fiber.Ctx, verify bool) error {
+	ctrl, err := h.resolve(c)
+	if err != nil {
+		return err
+	}
+	var req PasswordRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{
+			Success: false, Error: "invalid request body: " + err.Error(),
+		})
+	}
+
+	var action func(context.Context, string) error
+	if verify {
+		action = ctrl.CheckPassword
+	} else {
+		action = ctrl.SetPassword
+	}
+
+	err = action(c.Context(), req.Password)
+	if err == nil {
+		return c.JSON(SuccessResponse{Success: true})
+	}
+
+	msg := err.Error()
+	// Input validation errors come straight from the protocol builder.
+	if strings.Contains(msg, "password length") || strings.Contains(msg, "password char") {
+		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{Success: false, Error: msg})
+	}
+	// Explicit device-side rejections map to 401 so clients can tell
+	// "wrong password" apart from "BLE flaked out".
+	if strings.Contains(msg, "password rejected") || strings.Contains(msg, "set password rejected") {
+		return c.Status(fiber.StatusUnauthorized).JSON(SuccessResponse{Success: false, Error: msg})
+	}
+	return c.Status(fiber.StatusInternalServerError).JSON(SuccessResponse{Success: false, Error: msg})
+}
+
 // SetShowDeviceID toggles whether the panel displays its device ID.
 func (h *Handlers) SetShowDeviceID(c *fiber.Ctx) error {
 	ctrl, err := h.resolve(c)

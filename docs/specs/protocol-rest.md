@@ -32,6 +32,8 @@ Every device-addressed endpoint is keyed by the panel's registry ID (the normali
 | POST | `/device/:id/reset` | - | Factory reset |
 | POST | `/device/:id/show-id` | `{"on":true}` | 0x1E/0x01 toggle |
 | POST | `/device/:id/remote` | `{"on":false}` | 0x1E/0x02 toggle |
+| POST | `/device/:id/password/check` | `{"password":"1234"}` | 0x0D verify; 200 ok, 401 rejected, 400 bad format |
+| POST | `/device/:id/password/set` | `{"password":"abcd"}` | 0x0E persistent set — risk: lockout if forgotten |
 | POST | `/device/:id/text` | See below | Display text |
 | POST | `/device/:id/image` | See below | Display image |
 | POST | `/device/:id/gif` | See below | Display GIF |

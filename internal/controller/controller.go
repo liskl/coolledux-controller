@@ -228,6 +228,54 @@ func (c *Controller) setDeviceInfoFlag(ctx context.Context, subtype byte, on boo
 	return nil
 }
 
+// CheckPassword asks the panel whether the given hex-digit password
+// matches its stored one (command 0x0D). Returns nil on verified,
+// error on mismatch or transport failure.
+func (c *Controller) CheckPassword(ctx context.Context, password string) error {
+	cmd, err := protocol.BuildCheckPasswordCommand(password)
+	if err != nil {
+		return err
+	}
+	resp, err := c.transport.SendAndWait(ctx, cmd, protocol.CommandTimeout)
+	if err != nil {
+		return fmt.Errorf("checking password: %w", err)
+	}
+	if err := checkResponse(resp, protocol.RESPONSE_TYPE_PASSWORD_VERIFY); err != nil {
+		return fmt.Errorf("check password response: %w", err)
+	}
+	// APK (DeviceManager.java:4438): status byte == 0 means verified,
+	// any non-zero value means failure.
+	inner, _ := protocol.ParseStreamFrame(resp)
+	if len(inner) < 2 || inner[1] != 0 {
+		return fmt.Errorf("password rejected")
+	}
+	c.logger.Info("password verified")
+	return nil
+}
+
+// SetPassword writes a new panel password (command 0x0E). On success
+// the device persists the new password; the next connection from the
+// app will need to CheckPassword with the new value.
+func (c *Controller) SetPassword(ctx context.Context, password string) error {
+	cmd, err := protocol.BuildSetPasswordCommand(password)
+	if err != nil {
+		return err
+	}
+	resp, err := c.transport.SendAndWait(ctx, cmd, protocol.CommandTimeout)
+	if err != nil {
+		return fmt.Errorf("setting password: %w", err)
+	}
+	if err := checkResponse(resp, protocol.RESPONSE_TYPE_PASSWORD_SET); err != nil {
+		return fmt.Errorf("set password response: %w", err)
+	}
+	inner, _ := protocol.ParseStreamFrame(resp)
+	if len(inner) < 2 || inner[1] != 0 {
+		return fmt.Errorf("set password rejected")
+	}
+	c.logger.Info("password set")
+	return nil
+}
+
 // SyncTime sets the device clock to the given time.
 func (c *Controller) SyncTime(ctx context.Context, t time.Time) error {
 	cmd := protocol.BuildTimeSyncCommand(t)

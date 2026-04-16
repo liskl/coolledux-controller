@@ -157,6 +157,11 @@ type DeviceInfoToggleRequest struct {
 	On bool `json:"on"`
 }
 
+// PasswordRequest carries a hex-digit password for check/set.
+type PasswordRequest struct {
+	Password string `json:"password"`
+}
+
 // --- Response types ---
 
 // SuccessResponse is the standard response for mutating operations.

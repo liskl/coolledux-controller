@@ -199,12 +199,6 @@ const (
 	ProgramDataMarker  byte = 0x03
 )
 
-// Password operations.
-const (
-	PasswordOpVerify byte = 0x01
-	PasswordOpSet    byte = 0x00
-)
-
 // Power states.
 const (
 	PowerOn  byte = 0x01

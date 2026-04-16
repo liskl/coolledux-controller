@@ -1,6 +1,10 @@
 package protocol
 
-import "time"
+import (
+	"crypto/rand"
+	"fmt"
+	"time"
+)
 
 // TimerItem represents a single timer schedule entry.
 // Verified against CoolLED 1248 Android app.
@@ -83,19 +87,76 @@ func rgb444Transfer(v uint8) uint8 {
 	return uint8((int(v)-47)/14 + 1)
 }
 
-// BuildPasswordCommand builds a framed password verify or set command.
-// verify=true uses CMD_CHECK_PASSWORD (0x0D), verify=false uses CMD_SET_PASSWORD (0x0E).
-func BuildPasswordCommand(password string, verify bool) []byte {
-	cmdCode := CMD_SET_PASSWORD
-	op := PasswordOpSet
-	if verify {
-		cmdCode = CMD_CHECK_PASSWORD
-		op = PasswordOpVerify
+// BuildCheckPasswordCommand builds a framed 0x0D password-verify command.
+// See buildPasswordCommand for the packet layout and password encoding.
+func BuildCheckPasswordCommand(password string) ([]byte, error) {
+	return buildPasswordCommand(CMD_CHECK_PASSWORD, password, randomByte())
+}
+
+// BuildSetPasswordCommand builds a framed 0x0E password-set command.
+func BuildSetPasswordCommand(password string) ([]byte, error) {
+	return buildPasswordCommand(CMD_SET_PASSWORD, password, randomByte())
+}
+
+// buildPasswordCommand encodes either 0x0D (check) or 0x0E (set) per the
+// APK's getCheckPasswordData / getSetPasswordData at CoolledUXUtils.java:2770
+// and :4438. Packet layout after the stream frame:
+//
+//	[cmd][xorKey][nibble[0]^xorKey][nibble[1]^xorKey]...[xorChecksum]
+//
+// where each password character is interpreted as a single hex digit
+// (0-9, a-f, case-insensitive) and therefore a 4-bit nibble. The
+// xorChecksum is the XOR of every byte from the first encoded nibble
+// through the last; the cmd byte and the xorKey byte are excluded.
+//
+// The xorKey is randomized per call — tests inject a fixed key via this
+// unexported entry point for byte-exact assertions.
+func buildPasswordCommand(cmdCode byte, password string, xorKey byte) ([]byte, error) {
+	if len(password) < PasswordMinLen || len(password) > PasswordMaxLen {
+		return nil, fmt.Errorf("password length %d outside [%d..%d]",
+			len(password), PasswordMinLen, PasswordMaxLen)
 	}
-	data := make([]byte, 1+len(password))
-	data[0] = op
-	copy(data[1:], []byte(password))
-	return buildControlCommand(cmdCode, data)
+	nibbles := make([]byte, len(password))
+	for i, c := range password {
+		n, ok := hexNibble(c)
+		if !ok {
+			return nil, fmt.Errorf("password char %q at %d: want 0-9/a-f/A-F", c, i)
+		}
+		nibbles[i] = n ^ xorKey
+	}
+	var checksum byte
+	for _, b := range nibbles {
+		checksum ^= b
+	}
+
+	out := make([]byte, 0, 3+len(nibbles))
+	out = append(out, cmdCode, xorKey)
+	out = append(out, nibbles...)
+	out = append(out, checksum)
+	return BuildStreamFrame(out), nil
+}
+
+// hexNibble returns the 4-bit value of a hex-digit rune; ok reports
+// whether the rune was a valid hex digit.
+func hexNibble(r rune) (byte, bool) {
+	switch {
+	case r >= '0' && r <= '9':
+		return byte(r - '0'), true
+	case r >= 'a' && r <= 'f':
+		return byte(r-'a') + 10, true
+	case r >= 'A' && r <= 'F':
+		return byte(r-'A') + 10, true
+	}
+	return 0, false
+}
+
+// randomByte reads one cryptographically random byte. crypto/rand read
+// errors are fatal in Go — they only surface if the OS runs out of
+// entropy, which is effectively impossible on Linux.
+func randomByte() byte {
+	var b [1]byte
+	_, _ = rand.Read(b[:])
+	return b[0]
 }
 
 // BuildTimeSyncCommand builds a framed time-sync command matching the Android app format.

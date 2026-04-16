@@ -520,9 +520,11 @@ No CRC, no BLE-header wrapper. Response shape is `[cmd, status]` where `status =
 
 ### Hardware findings (2026-04-16, 16x96 v10)
 
-- The check path (`0x0D`) is fully verified end-to-end: builder byte format matches, panel parses and responds on every attempt.
-- This specific panel accepts **4-character and 6-character hex passwords with any value**; other lengths (5, 7, 8, 10, 12, 14, 16) return `status != 0`. Most likely reading: there's no password stored, so the firmware's length check succeeds for the sizes it cares about (probably user-PIN and admin-PIN) and the actual value isn't consulted.
-- The set path (`0x0E`) is NOT hardware-validated — sending a `setPassword` with a value we don't remember can lock us out of the panel, so we only ship the builder and code-test it. If you're testing on a disposable panel, `/device/:id/password/set` is available.
+- The check path (`0x0D`) is fully verified end-to-end against a panel with a real stored password ("123456"): the builder-encoded packet decodes on the firmware side back to the exact nibbles we input, and the device's compare matches the stored value.
+- Concrete round-trip: `123456` → 200 verified; `abcdef`, `654321` → 401 rejected; any wrong length → 401 rejected.
+- Case-insensitive: `ABCDEF` and `abcdef` produce identical on-wire packets and identical device responses (both rejected in the same run), consistent with parsing each char as a single hex digit regardless of case.
+- Before a password was stored on this panel, **4- and 6-character hex inputs of any value returned 200** and other lengths returned 401. Reading: the firmware's length gate runs first (user-PIN is 4 chars, admin-PIN is 6), and with no stored value the comparison is a no-op. Once a 6-character password was set via the APK, only that exact value (`123456`) passed.
+- The set path (`0x0E`) is implicitly validated — the user set the password via the APK, and our check path decoded the same nibbles the APK's set path encoded. If you're writing a new password via `/device/:id/password/set`, remember the value: there is no recovery mechanism on the device side.
 
 ## Drive State (`0x1C/0x01`, `0x1C/0x02`) — not supported on 16x96
 

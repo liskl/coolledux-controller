@@ -565,6 +565,321 @@ func TestScoreboard_Show_DefaultColor_Connected(t *testing.T) {
 	}
 }
 
+// ---------- Password endpoints ----------
+
+func TestCheckPassword_Verified(t *testing.T) {
+	rig := newTestRig(t)
+	go rig.transport.InjectResponseForTest(
+		protocol.BuildStreamFrame([]byte{protocol.RESPONSE_TYPE_PASSWORD_VERIFY, 0x00}),
+	)
+	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/password/check",
+		`{"password":"1234"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
+	var sr SuccessResponse
+	if err := json.Unmarshal(body, &sr); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !sr.Success {
+		t.Errorf("expected success=true, got error %q", sr.Error)
+	}
+}
+
+func TestCheckPassword_Rejected_401(t *testing.T) {
+	rig := newTestRig(t)
+	go rig.transport.InjectResponseForTest(
+		protocol.BuildStreamFrame([]byte{protocol.RESPONSE_TYPE_PASSWORD_VERIFY, 0x01}),
+	)
+	resp, _ := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/password/check",
+		`{"password":"1234"}`)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestCheckPassword_InvalidInput_400(t *testing.T) {
+	// Too-short password: the builder returns "password length ..." which the
+	// handler maps to 400.
+	rig := newTestRig(t)
+	resp, _ := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/password/check",
+		`{"password":"ab"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestCheckPassword_InvalidBody(t *testing.T) {
+	rig := newTestRig(t)
+	resp, _ := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/password/check",
+		`garbage`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestSetPassword_Success(t *testing.T) {
+	rig := newTestRig(t)
+	go rig.transport.InjectResponseForTest(
+		protocol.BuildStreamFrame([]byte{protocol.RESPONSE_TYPE_PASSWORD_SET, 0x00}),
+	)
+	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/password/set",
+		`{"password":"abcd"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
+}
+
+// ---------- SetColor / SetColorMode / SetColorSpeed ----------
+
+func TestSetColor_Connected(t *testing.T) {
+	rig := newTestRig(t)
+	go rig.transport.InjectResponseForTest(fakeOK(protocol.RESPONSE_TYPE_COLOR))
+	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/color",
+		`{"color":"#FF8800"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
+	var sr SuccessResponse
+	if err := json.Unmarshal(body, &sr); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !sr.Success {
+		t.Errorf("expected success, got error %q", sr.Error)
+	}
+}
+
+func TestSetColor_InvalidHex(t *testing.T) {
+	rig := newTestRig(t)
+	resp, _ := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/color",
+		`{"color":"notacolor"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestSetColorMode_Connected(t *testing.T) {
+	rig := newTestRig(t)
+	go rig.transport.InjectResponseForTest(fakeOK(protocol.RESPONSE_TYPE_COLOR))
+	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/color/mode",
+		`{"mode":5}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
+	var sr SuccessResponse
+	if err := json.Unmarshal(body, &sr); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !sr.Success {
+		t.Errorf("expected success, got error %q", sr.Error)
+	}
+}
+
+func TestSetColorMode_InvalidBody(t *testing.T) {
+	rig := newTestRig(t)
+	resp, _ := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/color/mode", `garbage`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestSetColorMode_UnsupportedMode(t *testing.T) {
+	// Mode 3 is rejected by the protocol layer (empty palette) — the handler
+	// should surface that as a 400, not a 500.
+	rig := newTestRig(t)
+	resp, _ := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/color/mode",
+		`{"mode":3}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestSetColorSpeed_Connected(t *testing.T) {
+	rig := newTestRig(t)
+	go rig.transport.InjectResponseForTest(fakeOK(protocol.RESPONSE_TYPE_COLOR))
+	resp, body := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/color/speed",
+		`{"speed":5}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
+	var sr SuccessResponse
+	if err := json.Unmarshal(body, &sr); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !sr.Success {
+		t.Errorf("expected success, got error %q", sr.Error)
+	}
+}
+
+func TestSetColorSpeed_InvalidBody(t *testing.T) {
+	rig := newTestRig(t)
+	resp, _ := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/color/speed", `garbage`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+// ---------- scanPrefix / scanTimeout ----------
+
+func TestScanPrefix_Constant(t *testing.T) {
+	h := NewHandlers(nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if got := h.scanPrefix(); got != "CoolLEDUX" {
+		t.Errorf("scanPrefix() = %q, want %q", got, "CoolLEDUX")
+	}
+}
+
+func TestScanTimeout_DefaultsWhenUnset(t *testing.T) {
+	h := NewHandlers(nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// scanTO zero-value should fall back to the 5s default.
+	if got := h.scanTimeout(); got != 5*time.Second {
+		t.Errorf("scanTimeout() = %v, want 5s", got)
+	}
+}
+
+func TestScanTimeout_UsesConfiguredValue(t *testing.T) {
+	h := NewHandlers(nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h.scanTO = 15 * time.Second
+	if got := h.scanTimeout(); got != 15*time.Second {
+		t.Errorf("scanTimeout() = %v, want 15s", got)
+	}
+}
+
+func TestScanDevices_NoRegistry_503(t *testing.T) {
+	// When the server is constructed without a registry, /scan should
+	// return 503 rather than panicking.
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ctrl := controller.New(nil, nil, testConfig(), logger)
+	srv := NewServer(ctrl, testConfig(), logger, nil)
+
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/scan", "")
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d", resp.StatusCode)
+	}
+}
+
+func TestListDevices_NoRegistry_503(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ctrl := controller.New(nil, nil, testConfig(), logger)
+	srv := NewServer(ctrl, testConfig(), logger, nil)
+
+	resp, _ := doJSONRequest(t, srv, http.MethodGet, "/devices", "")
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d", resp.StatusCode)
+	}
+}
+
+// ---------- resolve sad paths ----------
+
+func TestResolve_UnknownDeviceID_404(t *testing.T) {
+	rig := newTestRig(t)
+	resp, _ := doJSONRequest(t, rig.srv, http.MethodPost,
+		"/device/deadbeefcafe/channel", `{"channel":1}`)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 for unknown device id, got %d", resp.StatusCode)
+	}
+}
+
+// ---------- DisplayImage / DisplayGIF sad paths ----------
+
+func TestDisplayImage_InvalidFitMode(t *testing.T) {
+	rig := newTestRig(t)
+	// Valid base64 of "hello" but an invalid fit mode rejects before decode.
+	body := `{"image_base64":"aGVsbG8=","mode":"static","fit":"bogus"}`
+	resp, _ := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/image", body)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid fit, got %d", resp.StatusCode)
+	}
+}
+
+func TestDisplayImage_NonImageBytes_500(t *testing.T) {
+	// Valid base64, but the bytes are not a decodable image. The handler
+	// gets past BodyParser and base64 decode, then the controller rejects
+	// it via ledimage.DecodeImage — which should surface as 500.
+	rig := newTestRig(t)
+	body := `{"image_base64":"aGVsbG8=","mode":"static","fit":"letterbox"}`
+	resp, _ := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/image", body)
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected 500 for undecodable image, got %d", resp.StatusCode)
+	}
+}
+
+func TestDisplayGIF_InvalidFitMode(t *testing.T) {
+	rig := newTestRig(t)
+	body := `{"gif_base64":"aGVsbG8=","fit":"bogus"}`
+	resp, _ := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/gif", body)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid fit, got %d", resp.StatusCode)
+	}
+}
+
+func TestDisplayGIF_NonGIFBytes_500(t *testing.T) {
+	rig := newTestRig(t)
+	body := `{"gif_base64":"aGVsbG8=","fit":"letterbox"}`
+	resp, _ := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/gif", body)
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected 500 for undecodable gif, got %d", resp.StatusCode)
+	}
+}
+
+func TestDisplayGIF_Raw_MissingMagic_500(t *testing.T) {
+	// raw=true skips the library decode and goes straight to the 0x0C path,
+	// which checks for GIF87a/GIF89a magic. "hello" fails that check.
+	rig := newTestRig(t)
+	body := `{"gif_base64":"aGVsbG8=","raw":true}`
+	resp, _ := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/gif", body)
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected 500 for missing GIF magic, got %d", resp.StatusCode)
+	}
+}
+
+// ---------- handleDeviceInfoToggle sad paths ----------
+
+// ---------- SetPassword sad paths ----------
+
+func TestSetPassword_InvalidInput_400(t *testing.T) {
+	rig := newTestRig(t)
+	// Too-short password fails at the builder: "password length ..." → 400.
+	resp, _ := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/password/set",
+		`{"password":"ab"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestSetPassword_Rejected_401(t *testing.T) {
+	rig := newTestRig(t)
+	go rig.transport.InjectResponseForTest(
+		protocol.BuildStreamFrame([]byte{protocol.RESPONSE_TYPE_PASSWORD_SET, 0x01}),
+	)
+	resp, _ := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/password/set",
+		`{"password":"abcd"}`)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestSetPassword_InvalidBody(t *testing.T) {
+	rig := newTestRig(t)
+	resp, _ := doJSONRequest(t, rig.srv, http.MethodPost, "/device/010000fba416/password/set",
+		`garbage`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+// ---------- SetColor sad paths ----------
+
+func TestSetColor_Disconnected_500(t *testing.T) {
+	// testServer's controller is not connected; SetColor should time out
+	// waiting on a response and surface as 500.
+	srv := testServer(t)
+	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/device/010000fba416/color",
+		`{"color":"#FF0000"}`)
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", resp.StatusCode)
+	}
+}
+
 // Tiny sanity check: the Server respects the body-limit ceiling and the
 // request context threads into the controller. This test doesn't wait on BLE;
 // it cancels via a short context deadline so we exercise the ctx-cancelled

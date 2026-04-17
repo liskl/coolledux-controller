@@ -141,6 +141,26 @@ func TestDecompress_Empty(t *testing.T) {
 	}
 }
 
+func TestDecompress_TruncatedLiteral(t *testing.T) {
+	// Flag byte 0xFF says "8 literals coming" but we only provide 1.
+	// Decompress should break mid-group and return what it got without
+	// panicking on the out-of-bounds slice access.
+	out := Decompress([]byte{0xFF, 0xAA})
+	if len(out) != 1 || out[0] != 0xAA {
+		t.Errorf("got % X, want [AA]", out)
+	}
+}
+
+func TestDecompress_TruncatedMatch(t *testing.T) {
+	// Flag byte 0x00 says "8 match pairs coming" but only 1 byte follows,
+	// so the idx+1 >= len check should fire before we try to read the high
+	// nibble. No panic, no emitted bytes.
+	out := Decompress([]byte{0x00, 0x42})
+	if len(out) != 0 {
+		t.Errorf("got % X, want empty", out)
+	}
+}
+
 func TestCompress_FlagBitsAreLSBFirst(t *testing.T) {
 	// Use a repeating input long enough to actually compress, but where we can
 	// predict the flag layout. With 8 unique bytes followed by a long repeat of

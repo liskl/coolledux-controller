@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 )
 
@@ -216,6 +217,30 @@ func TestParseStreamFrame_Errors(t *testing.T) {
 				t.Error("expected error, got nil")
 			}
 		})
+	}
+}
+
+func TestParseStreamFrame_LengthFieldExceedsPayload(t *testing.T) {
+	// Frame: [0x01][len=5 BE][1 byte][0x03] — length field claims 5 payload
+	// bytes but only 1 is present. ParseStreamFrame should surface
+	// ErrPacketTooShort rather than panic on the slice.
+	frame := []byte{START_BYTE, 0x00, 0x05, 0xAA, END_BYTE}
+	_, err := ParseStreamFrame(frame)
+	if err == nil {
+		t.Fatal("expected error on truncated payload, got nil")
+	}
+	if !errors.Is(err, ErrPacketTooShort) {
+		t.Errorf("error = %v, want ErrPacketTooShort", err)
+	}
+}
+
+func TestParseStreamFrame_MissingLengthField(t *testing.T) {
+	// Frame with a start byte, a single interior byte, and an end byte
+	// cannot hold the 2-byte length prefix once unescaped.
+	frame := []byte{START_BYTE, 0xAA, END_BYTE}
+	_, err := ParseStreamFrame(frame)
+	if err == nil {
+		t.Fatal("expected error on missing length field, got nil")
 	}
 }
 

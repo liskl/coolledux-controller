@@ -227,3 +227,29 @@ func TestParseHexList_RejectsBadToken(t *testing.T) {
 		t.Error("expected error on 3-char token, got nil")
 	}
 }
+
+func TestMustParseHexList_PanicsOnBadInput(t *testing.T) {
+	// mustParseHexList is used to build the palette table at init time, so
+	// any bad constant is a bug the program should crash on. Verify the
+	// panic branch fires when it should — a bad token here would ship
+	// unnoticed otherwise.
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic on malformed input, got none")
+		}
+	}()
+	_ = mustParseHexList("ZZ")
+}
+
+func TestMustParseHexList_GoodInput(t *testing.T) {
+	got := mustParseHexList("0F,FF,00")
+	want := []byte{0x0F, 0xFF, 0x00}
+	if len(got) != len(want) {
+		t.Fatalf("len = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("byte[%d] = 0x%02X, want 0x%02X", i, got[i], want[i])
+		}
+	}
+}

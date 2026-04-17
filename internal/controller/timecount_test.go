@@ -71,6 +71,15 @@ func TestBuildCountdownBackgroundContent(t *testing.T) {
 	}
 }
 
+func TestBuildOverlayBackgroundContent_InvalidGIF(t *testing.T) {
+	// Non-GIF bytes: DecodeGIF should fail and the function returns an
+	// error instead of silently producing empty content.
+	_, err := buildOverlayBackgroundContent([]byte("not a gif"), "test")
+	if err == nil {
+		t.Fatal("expected error on non-GIF bytes, got nil")
+	}
+}
+
 func TestBuildTimeCountContent96x16With_Structure(t *testing.T) {
 	digits := make([]byte, 140)
 	for i := range digits {

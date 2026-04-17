@@ -1146,6 +1146,114 @@ func TestSetColor_Connected(t *testing.T) {
 	}
 }
 
+func TestCheckPassword_Verified(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+
+	// Device replies [0x0D][0x00] on verified (status byte 0).
+	go func() {
+		transport.InjectResponseForTest(
+			protocol.BuildStreamFrame([]byte{protocol.RESPONSE_TYPE_PASSWORD_VERIFY, 0x00}),
+		)
+	}()
+
+	if err := ctrl.CheckPassword(context.Background(), "1234"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckPassword_Rejected(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+
+	// Any non-zero status byte means rejection (per APK DeviceManager:4438).
+	go func() {
+		transport.InjectResponseForTest(
+			protocol.BuildStreamFrame([]byte{protocol.RESPONSE_TYPE_PASSWORD_VERIFY, 0x01}),
+		)
+	}()
+
+	err := ctrl.CheckPassword(context.Background(), "1234")
+	if err == nil {
+		t.Fatal("expected error when device returns status=1, got nil")
+	}
+}
+
+func TestCheckPassword_InvalidPasswordShortCircuits(t *testing.T) {
+	// Non-hex characters are rejected by the builder before any BLE traffic.
+	ctrl, _, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+	if err := ctrl.CheckPassword(context.Background(), "gggg"); err == nil {
+		t.Fatal("expected error on non-hex password, got nil")
+	}
+}
+
+func TestSetPassword_Success(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+
+	go func() {
+		transport.InjectResponseForTest(
+			protocol.BuildStreamFrame([]byte{protocol.RESPONSE_TYPE_PASSWORD_SET, 0x00}),
+		)
+	}()
+
+	if err := ctrl.SetPassword(context.Background(), "abcd"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSetPassword_Rejected(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+
+	go func() {
+		transport.InjectResponseForTest(
+			protocol.BuildStreamFrame([]byte{protocol.RESPONSE_TYPE_PASSWORD_SET, 0x01}),
+		)
+	}()
+
+	err := ctrl.SetPassword(context.Background(), "abcd")
+	if err == nil {
+		t.Fatal("expected error when device returns status=1, got nil")
+	}
+}
+
+func TestSetColorMode_Connected(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+
+	go func() { transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_COLOR)) }()
+
+	// Mode 5 is a valid ID per protocol.ColorModeIDs (1, 2, 5..31).
+	if err := ctrl.SetColorMode(context.Background(), 5); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSetColorMode_InvalidModeShortCircuits(t *testing.T) {
+	// Mode 3 is rejected by the protocol builder before any BLE send happens,
+	// so no response injection is needed.
+	ctrl, _, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+
+	err := ctrl.SetColorMode(context.Background(), 3)
+	if err == nil {
+		t.Fatal("expected error on invalid mode 3, got nil")
+	}
+}
+
+func TestSetColorSpeed_Connected(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+
+	go func() { transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_COLOR)) }()
+
+	if err := ctrl.SetColorSpeed(context.Background(), 7); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestDisplayImage_Connected(t *testing.T) {
 	ctrl, transport, client := connectedController()
 	defer client.OverrideConnectedForTest(false)
@@ -1183,6 +1291,226 @@ func TestDisplayGIF_Connected(t *testing.T) {
 
 	err := ctrl.DisplayGIF(context.Background(), gifBytes, 100, ledimage.FitLetterbox, 0, 0, 0, 0)
 	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// ---------- checkProgramStartResponse ----------
+
+func TestCheckProgramStartResponse_NewProgram(t *testing.T) {
+	// Status 0x00 = new program accepted.
+	frame := protocol.BuildStreamFrame([]byte{protocol.RESPONSE_TYPE_PROGRAM_START, 0x00})
+	if err := checkProgramStartResponse(frame); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckProgramStartResponse_OverwriteExisting(t *testing.T) {
+	// Status 0x01 = overwriting existing program. Also acceptable.
+	frame := protocol.BuildStreamFrame([]byte{protocol.RESPONSE_TYPE_PROGRAM_START, 0x01})
+	if err := checkProgramStartResponse(frame); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckProgramStartResponse_Empty(t *testing.T) {
+	if err := checkProgramStartResponse(nil); err == nil {
+		t.Error("expected error on empty response, got nil")
+	}
+}
+
+func TestCheckProgramStartResponse_TooShort(t *testing.T) {
+	// Single byte in the stream frame's payload (need at least 2: type + status).
+	frame := protocol.BuildStreamFrame([]byte{protocol.RESPONSE_TYPE_PROGRAM_START})
+	if err := checkProgramStartResponse(frame); err == nil {
+		t.Error("expected error on too-short payload, got nil")
+	}
+}
+
+func TestCheckProgramStartResponse_WrongType(t *testing.T) {
+	// Response type other than PROGRAM_START is rejected.
+	frame := protocol.BuildStreamFrame([]byte{protocol.RESPONSE_TYPE_POWER, 0x00})
+	if err := checkProgramStartResponse(frame); err == nil {
+		t.Error("expected error on wrong type, got nil")
+	}
+}
+
+func TestCheckProgramStartResponse_RawPayload(t *testing.T) {
+	// Callers sometimes pass raw (unframed) bytes; checkProgramStartResponse
+	// should still validate those by treating the slice as the inner payload.
+	raw := []byte{protocol.RESPONSE_TYPE_PROGRAM_START, 0x00}
+	if err := checkProgramStartResponse(raw); err != nil {
+		t.Errorf("unexpected error on raw payload: %v", err)
+	}
+}
+
+// ---------- Wrong-response-type sad paths ----------
+//
+// Each control command (power, brightness, flip, channel, color, color-mode,
+// color-speed) validates that the response type code matches the command.
+// If the firmware returns a stale or unrelated frame, the controller should
+// fail instead of silently succeeding. We drive that by injecting a
+// RESPONSE_TYPE_DEVICE_INFO frame where a specific ACK is expected.
+
+func TestSetPower_RejectsWrongResponseType(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+	go func() { transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_DEVICE_INFO)) }()
+
+	if err := ctrl.SetPower(context.Background(), true); err == nil {
+		t.Fatal("expected error on wrong response type, got nil")
+	}
+}
+
+func TestSetBrightness_RejectsWrongResponseType(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+	go func() { transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_DEVICE_INFO)) }()
+
+	if err := ctrl.SetBrightness(context.Background(), 128); err == nil {
+		t.Fatal("expected error on wrong response type, got nil")
+	}
+}
+
+func TestSetFlip_RejectsWrongResponseType(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+	go func() { transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_DEVICE_INFO)) }()
+
+	if err := ctrl.SetFlip(context.Background(), models.FlipModeHorizontal); err == nil {
+		t.Fatal("expected error on wrong response type, got nil")
+	}
+}
+
+func TestSetChannel_RejectsWrongResponseType(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+	go func() { transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_DEVICE_INFO)) }()
+
+	if err := ctrl.SetChannel(context.Background(), 2); err == nil {
+		t.Fatal("expected error on wrong response type, got nil")
+	}
+}
+
+func TestSetColor_RejectsWrongResponseType(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+	go func() { transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_DEVICE_INFO)) }()
+
+	if err := ctrl.SetColor(context.Background(), 0xFF8800); err == nil {
+		t.Fatal("expected error on wrong response type, got nil")
+	}
+}
+
+func TestSetColorMode_RejectsWrongResponseType(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+	go func() { transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_DEVICE_INFO)) }()
+
+	if err := ctrl.SetColorMode(context.Background(), 5); err == nil {
+		t.Fatal("expected error on wrong response type, got nil")
+	}
+}
+
+func TestSetColorSpeed_RejectsWrongResponseType(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+	go func() { transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_DEVICE_INFO)) }()
+
+	if err := ctrl.SetColorSpeed(context.Background(), 5); err == nil {
+		t.Fatal("expected error on wrong response type, got nil")
+	}
+}
+
+func TestCheckPassword_RejectsWrongResponseType(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+	// Send a 0x0E (set-password ACK) when a 0x0D (verify) is expected.
+	go func() { transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_PASSWORD_SET)) }()
+
+	if err := ctrl.CheckPassword(context.Background(), "1234"); err == nil {
+		t.Fatal("expected error on wrong response type, got nil")
+	}
+}
+
+func TestSetPassword_RejectsWrongResponseType(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+	// Send a 0x0D (verify ACK) when a 0x0E (set) is expected.
+	go func() { transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_PASSWORD_VERIFY)) }()
+
+	if err := ctrl.SetPassword(context.Background(), "1234"); err == nil {
+		t.Fatal("expected error on wrong response type, got nil")
+	}
+}
+
+func TestSetPassword_InvalidPasswordShortCircuits(t *testing.T) {
+	// Short-circuits before any BLE I/O.
+	ctrl, _, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+	if err := ctrl.SetPassword(context.Background(), "xyz!"); err == nil {
+		t.Fatal("expected error on non-hex password, got nil")
+	}
+}
+
+// ---------- resolveRegion sad paths (exercised via Display* wrappers) ----------
+
+func TestDisplayImage_NegativeOffsetRejected(t *testing.T) {
+	ctrl, _, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+	// Negative x fails resolveRegion before we ever hit the wire.
+	err := ctrl.DisplayImage(context.Background(), makeSmallPNG(),
+		models.TextShowModeStatic, 5, 0, ledimage.FitLetterbox, -1, 0, 4, 4)
+	if err == nil {
+		t.Fatal("expected error on negative x, got nil")
+	}
+}
+
+func TestDisplayImage_OutOfBoundsRejected(t *testing.T) {
+	ctrl, _, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+	// 96x16 panel; 100-wide region is out of bounds.
+	err := ctrl.DisplayImage(context.Background(), makeSmallPNG(),
+		models.TextShowModeStatic, 5, 0, ledimage.FitLetterbox, 0, 0, 100, 16)
+	if err == nil {
+		t.Fatal("expected error on out-of-bounds region, got nil")
+	}
+}
+
+func TestDisplayGIF_NegativeOffsetRejected(t *testing.T) {
+	ctrl, _, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+	err := ctrl.DisplayGIF(context.Background(), makeSmallGIF(),
+		100, ledimage.FitLetterbox, 0, -1, 4, 4)
+	if err == nil {
+		t.Fatal("expected error on negative y, got nil")
+	}
+}
+
+func TestDisplayRawGIF_InvalidRegion(t *testing.T) {
+	ctrl, _, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+	// Valid GIF89a magic but bogus region: 200 columns on a 96-wide panel.
+	gifData := append([]byte("GIF89a"), 0x00, 0x01, 0x02, 0x03)
+	err := ctrl.DisplayRawGIF(context.Background(), gifData, 0, 0, 200, 16)
+	if err == nil {
+		t.Fatal("expected error on out-of-bounds region, got nil")
+	}
+}
+
+func TestDisplayRawGIF_Connected(t *testing.T) {
+	ctrl, transport, client := connectedController()
+	defer client.OverrideConnectedForTest(false)
+	// Construct just enough of a GIF89a header to pass the magic check;
+	// DisplayRawGIF doesn't decode the file itself, it just ships bytes.
+	gifData := append([]byte("GIF89a"), make([]byte, 32)...)
+	go func() {
+		transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_PROGRAM_START))
+		for range 10 {
+			transport.InjectResponseForTest(fakeResponse(protocol.RESPONSE_TYPE_PROGRAM_DATA))
+		}
+	}()
+	if err := ctrl.DisplayRawGIF(context.Background(), gifData, 0, 0, 0, 0); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

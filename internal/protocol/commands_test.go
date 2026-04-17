@@ -448,6 +448,175 @@ func TestBuildColorCommandMatchesAPKPattern(t *testing.T) {
 	}
 }
 
+func TestBuildChannelCommand(t *testing.T) {
+	tests := []struct {
+		name    string
+		channel uint8
+	}{
+		{"slot 0", 0},
+		{"slot 1", 1},
+		{"slot 8", 8},
+		{"max", 255},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			frame := BuildChannelCommand(tt.channel)
+			payload := roundTripCommand(t, frame)
+
+			// payload: [CMD_CHANNEL][channel][CRC32 x4]
+			if len(payload) != 6 {
+				t.Fatalf("payload length = %d, want 6", len(payload))
+			}
+			if payload[0] != CMD_CHANNEL {
+				t.Errorf("command code = 0x%02X, want 0x%02X (CMD_CHANNEL)", payload[0], CMD_CHANNEL)
+			}
+			if payload[1] != tt.channel {
+				t.Errorf("channel = %d, want %d", payload[1], tt.channel)
+			}
+			verifyCRC(t, payload)
+		})
+	}
+}
+
+func TestBuildCountdownStatusCommand(t *testing.T) {
+	payload := roundTripCommand(t, BuildCountdownStatusCommand())
+	want := []byte{CMD_COUNTDOWN, COUNTDOWN_SUBTYPE_STATUS}
+	if !bytes.Equal(payload, want) {
+		t.Errorf("got % X, want % X", payload, want)
+	}
+}
+
+func TestBuildCountdownSetCommand(t *testing.T) {
+	payload := roundTripCommand(t, BuildCountdownSetCommand(1, 30, 45))
+	want := []byte{CMD_COUNTDOWN, COUNTDOWN_SUBTYPE_SET, 1, 30, 45}
+	if !bytes.Equal(payload, want) {
+		t.Errorf("got % X, want % X", payload, want)
+	}
+}
+
+func TestBuildCountdownStartStopCommand(t *testing.T) {
+	tests := []struct {
+		name  string
+		start bool
+		flag  byte
+	}{
+		{"start", true, 0x01},
+		{"stop", false, 0x00},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := roundTripCommand(t, BuildCountdownStartStopCommand(tt.start))
+			want := []byte{CMD_COUNTDOWN, COUNTDOWN_SUBTYPE_START_STOP, tt.flag}
+			if !bytes.Equal(payload, want) {
+				t.Errorf("got % X, want % X", payload, want)
+			}
+		})
+	}
+}
+
+func TestBuildStopwatchStatusCommand(t *testing.T) {
+	payload := roundTripCommand(t, BuildStopwatchStatusCommand())
+	want := []byte{CMD_STOPWATCH, STOPWATCH_SUBTYPE_STATUS}
+	if !bytes.Equal(payload, want) {
+		t.Errorf("got % X, want % X", payload, want)
+	}
+}
+
+func TestBuildStopwatchResetCommand(t *testing.T) {
+	payload := roundTripCommand(t, BuildStopwatchResetCommand())
+	want := []byte{CMD_STOPWATCH, STOPWATCH_SUBTYPE_RESET}
+	if !bytes.Equal(payload, want) {
+		t.Errorf("got % X, want % X", payload, want)
+	}
+}
+
+func TestBuildStopwatchStartStopCommand(t *testing.T) {
+	tests := []struct {
+		name  string
+		start bool
+		flag  byte
+	}{
+		{"start", true, 0x01},
+		{"stop", false, 0x00},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := roundTripCommand(t, BuildStopwatchStartStopCommand(tt.start))
+			want := []byte{CMD_STOPWATCH, STOPWATCH_SUBTYPE_START_STOP, tt.flag}
+			if !bytes.Equal(payload, want) {
+				t.Errorf("got % X, want % X", payload, want)
+			}
+		})
+	}
+}
+
+func TestBuildScoreboardStatusCommand(t *testing.T) {
+	payload := roundTripCommand(t, BuildScoreboardStatusCommand())
+	want := []byte{CMD_SCOREBOARD, SCOREBOARD_SUBTYPE_STATUS}
+	if !bytes.Equal(payload, want) {
+		t.Errorf("got % X, want % X", payload, want)
+	}
+}
+
+func TestBuildScoreboardSetScoresCommand(t *testing.T) {
+	// scoreA=0x0123 -> [0x01, 0x23]; scoreB=0x00FF -> [0x00, 0xFF]; totals as uint8s.
+	payload := roundTripCommand(t, BuildScoreboardSetScoresCommand(0x0123, 0x00FF, 3, 2))
+	want := []byte{
+		CMD_SCOREBOARD, SCOREBOARD_SUBTYPE_SET_SCORES,
+		0x01, 0x23,
+		0x00, 0xFF,
+		3, 2,
+	}
+	if !bytes.Equal(payload, want) {
+		t.Errorf("got % X, want % X", payload, want)
+	}
+}
+
+func TestBuildScoreboardSetTimeCommand(t *testing.T) {
+	tests := []struct {
+		name    string
+		hour    uint8
+		minute  uint8
+		isTimer bool
+		flag    byte
+	}{
+		{"wallclock", 14, 30, false, 0x00},
+		{"timer", 0, 0, true, 0x01},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := roundTripCommand(t, BuildScoreboardSetTimeCommand(tt.hour, tt.minute, tt.isTimer))
+			want := []byte{
+				CMD_SCOREBOARD, SCOREBOARD_SUBTYPE_SET_TIME,
+				tt.hour, tt.minute, tt.flag,
+			}
+			if !bytes.Equal(payload, want) {
+				t.Errorf("got % X, want % X", payload, want)
+			}
+		})
+	}
+}
+
+func TestBuildScoreboardStartStopCommand(t *testing.T) {
+	tests := []struct {
+		name  string
+		start bool
+		flag  byte
+	}{
+		{"start", true, 0x01},
+		{"stop", false, 0x00},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := roundTripCommand(t, BuildScoreboardStartStopCommand(tt.start))
+			want := []byte{CMD_SCOREBOARD, SCOREBOARD_SUBTYPE_START_STOP, tt.flag}
+			if !bytes.Equal(payload, want) {
+				t.Errorf("got % X, want % X", payload, want)
+			}
+		})
+	}
+}
+
 func TestBuildSetDeviceInfoCommand(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -567,12 +567,163 @@ func TestHandleRemoteCommand_Connected(t *testing.T) {
 	}
 }
 
+func TestHandleSwitchToggle_SetterError_Wrapped(t *testing.T) {
+	// Disconnected controller: the setter returns a not-connected error.
+	// handleSwitchToggle should wrap it with a "setting <label>" prefix.
+	h := testHandler()
+	err := h.HandleShowDeviceIDCommand([]byte("ON"))
+	if err == nil {
+		t.Fatal("expected error with disconnected controller, got nil")
+	}
+	if !strings.Contains(err.Error(), "show_id") {
+		t.Errorf("error = %q, want label %q in message", err.Error(), "show_id")
+	}
+}
+
+func TestHandleColorModeCommand_OffPropagatesSetColorError(t *testing.T) {
+	// Disconnected; SetColor returns an error. The handler should wrap it.
+	h := testHandler()
+	err := h.HandleColorModeCommand([]byte("off"))
+	if err == nil {
+		t.Fatal("expected error on disconnected SetColor, got nil")
+	}
+	if !strings.Contains(err.Error(), "restoring") {
+		t.Errorf("error = %q, want wrap mentioning 'restoring'", err.Error())
+	}
+}
+
+func TestHandleColorSpeedCommand_PropagatesSetterError(t *testing.T) {
+	// Disconnected controller surfaces a wrapped "setting color speed" error.
+	h := testHandler()
+	err := h.HandleColorSpeedCommand([]byte("5"))
+	if err == nil {
+		t.Fatal("expected error on disconnected SetColorSpeed, got nil")
+	}
+	if !strings.Contains(err.Error(), "setting color speed") {
+		t.Errorf("error = %q, want wrap", err.Error())
+	}
+}
+
+func TestHandleImageCommand_PropagatesDisplayError(t *testing.T) {
+	// Valid JSON + valid base64 + valid mode/fit, but DisplayImage fails
+	// because no controller is connected and the image bytes are garbage.
+	h := testHandler()
+	err := h.HandleImageCommand([]byte(`{
+		"image_base64":"aGVsbG8=",
+		"mode":"static",
+		"fit":"letterbox"
+	}`))
+	if err == nil {
+		t.Fatal("expected error on invalid image bytes, got nil")
+	}
+	if !strings.Contains(err.Error(), "displaying image") {
+		t.Errorf("error = %q, want wrap mentioning 'displaying image'", err.Error())
+	}
+}
+
+func TestHandleGIFCommand_PropagatesDisplayError(t *testing.T) {
+	h := testHandler()
+	err := h.HandleGIFCommand([]byte(`{
+		"gif_base64":"aGVsbG8=",
+		"fit":"letterbox"
+	}`))
+	if err == nil {
+		t.Fatal("expected error on invalid GIF bytes, got nil")
+	}
+	if !strings.Contains(err.Error(), "displaying gif") {
+		t.Errorf("error = %q, want wrap mentioning 'displaying gif'", err.Error())
+	}
+}
+
 func TestHandleSwitchToggle_RejectsBadPayload(t *testing.T) {
 	h := testHandler()
 	for _, bad := range []string{"", "maybe", "TRUE", "1", "ON\nextra"} {
 		if err := h.HandleShowDeviceIDCommand([]byte(bad)); err == nil {
 			t.Errorf("payload %q: expected error, got nil", bad)
 		}
+	}
+}
+
+func TestHandleColorModeCommand_ValidMode(t *testing.T) {
+	h, transport, client := connectedHandler()
+	defer client.OverrideConnectedForTest(false)
+	go func() { transport.InjectResponseForTest(fakeMQTTResponse(protocol.RESPONSE_TYPE_COLOR)) }()
+	if err := h.HandleColorModeCommand([]byte("5")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestHandleColorModeCommand_OffRestoresColor(t *testing.T) {
+	h, transport, client := connectedHandler()
+	defer client.OverrideConnectedForTest(false)
+	// NewCommandHandler seeds the state with white (255,255,255), so
+	// "off" should trigger a BuildColorCommand and expect RESPONSE_TYPE_COLOR.
+	go func() { transport.InjectResponseForTest(fakeMQTTResponse(protocol.RESPONSE_TYPE_COLOR)) }()
+	if err := h.HandleColorModeCommand([]byte("off")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestHandleColorModeCommand_OffNoColor(t *testing.T) {
+	// If state has no color, "off" is a no-op (no controller call at all).
+	h := testHandler()
+	h.mu.Lock()
+	h.state.Color = nil
+	h.mu.Unlock()
+	if err := h.HandleColorModeCommand([]byte("off")); err != nil {
+		t.Errorf("expected nil error for off with no color, got %v", err)
+	}
+}
+
+func TestHandleColorModeCommand_InvalidInt(t *testing.T) {
+	h := testHandler()
+	if err := h.HandleColorModeCommand([]byte("not-a-number")); err == nil {
+		t.Error("expected error for unparseable mode, got nil")
+	}
+}
+
+func TestHandleColorModeCommand_InvalidModeID(t *testing.T) {
+	// Mode 3 is explicitly rejected by the protocol builder (empty palette).
+	h, transport, client := connectedHandler()
+	defer client.OverrideConnectedForTest(false)
+	_ = transport // no response expected — the error surfaces before the send
+	if err := h.HandleColorModeCommand([]byte("3")); err == nil {
+		t.Error("expected error for invalid mode ID 3, got nil")
+	}
+}
+
+func TestHandleColorSpeedCommand_Valid(t *testing.T) {
+	h, transport, client := connectedHandler()
+	defer client.OverrideConnectedForTest(false)
+	go func() { transport.InjectResponseForTest(fakeMQTTResponse(protocol.RESPONSE_TYPE_COLOR)) }()
+	if err := h.HandleColorSpeedCommand([]byte("5")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestHandleColorSpeedCommand_BelowMinClamps(t *testing.T) {
+	h, transport, client := connectedHandler()
+	defer client.OverrideConnectedForTest(false)
+	go func() { transport.InjectResponseForTest(fakeMQTTResponse(protocol.RESPONSE_TYPE_COLOR)) }()
+	// 0 should be clamped up to 1 rather than rejected.
+	if err := h.HandleColorSpeedCommand([]byte("0")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestHandleColorSpeedCommand_AboveMaxClamps(t *testing.T) {
+	h, transport, client := connectedHandler()
+	defer client.OverrideConnectedForTest(false)
+	go func() { transport.InjectResponseForTest(fakeMQTTResponse(protocol.RESPONSE_TYPE_COLOR)) }()
+	if err := h.HandleColorSpeedCommand([]byte("99")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestHandleColorSpeedCommand_InvalidPayload(t *testing.T) {
+	h := testHandler()
+	if err := h.HandleColorSpeedCommand([]byte("fast")); err == nil {
+		t.Error("expected error for unparseable speed, got nil")
 	}
 }
 

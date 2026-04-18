@@ -51,13 +51,14 @@ type TimerRequest struct {
 
 // TextRequest displays text on the LED matrix.
 type TextRequest struct {
-	Text     string `json:"text"`
-	Mode     string `json:"mode"`      // "scroll_left", "static", etc.
-	Speed    uint8  `json:"speed"`
-	Color    string `json:"color"`     // "#FF0000" hex format
-	FontSize int    `json:"font_size"`
-	StayTime uint8  `json:"stay_time"`
-	Font     string `json:"font"` // registered font name; empty = default
+	Text          string `json:"text"`
+	Mode          string `json:"mode"`            // "scroll_left", "static", etc.
+	Speed         uint8  `json:"speed"`
+	Color         string `json:"color"`           // "#FF0000" hex format
+	FontSize      int    `json:"font_size"`
+	StayTime      uint8  `json:"stay_time"`
+	Font          string `json:"font"`            // registered font name; empty = default
+	AutoColorType int    `json:"auto_color_type"` // 0=off, 1-28=color animation preset (overrides color)
 }
 
 // CountdownRequest controls the device's countdown timer overlay.

@@ -16,6 +16,7 @@ A standalone Go service that drives a **CoolLEDUX 16x96 full-color RGB LED matri
 - MQTT client with Home Assistant auto-discovery (light + binary_sensor entities)
 - Image/GIF rendering to RGB444 column-major frames
 - Text rendering with three registered fonts: `7x13` (Plan 9, default), `7x14b` (X11 Misc Fixed Bold), `8x16` (Spleen)
+- 28 auto-color text presets (rainbow, gradient, multi-color) via content type 0x05 composite upload
 - LZSS compression + stream framing matching the stock Android app
 
 ## Protocol Specifications

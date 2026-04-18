@@ -64,9 +64,12 @@ Unknown `:id` returns 404; an unconfigured registry returns 503.
   "color": "#FF0000",
   "font_size": 16,
   "stay_time": 0,
-  "font": "8x16"
+  "font": "8x16",
+  "auto_color_type": 0
 }
 ```
+
+`auto_color_type` (integer, 0-28): when non-zero, uploads a composite program with a content type 0x05 auto-color overlay that applies an animated color palette to the text pixels only (not full-screen). Overrides `color` when set. 28 presets: 1-2 = rainbow sweep (direction variants), 3-7 = rainbow with different animation modes, 8-10 = 6-color palette, 11-14 = rainbow variants, 15-28 = 3-color fixed palette with all animation modes. Default `0` uses the single solid `color` via the graffiti path.
 
 `mode` values: `static`, `scroll_left`, `scroll_right`, `scroll_up`, `scroll_down`, `wipe_down`, `expand_from_center`, `blink`, `zoom_in`, `zoom_out`, `wipe_left`, `wipe_right`, `collapse_to_center`
 

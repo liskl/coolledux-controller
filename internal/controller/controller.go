@@ -665,6 +665,40 @@ func (c *Controller) DisplayText(ctx context.Context, s string, mode models.Text
 	return nil
 }
 
+// DisplayTextAutoColor uploads text with a per-region color animation overlay
+// (content type 0x05 + 0x01 composite). The firmware applies the selected
+// color palette to the text pixels only, not the full screen.
+//
+// autoColorType selects one of 28 predefined palette+animation combos
+// (1 = rainbow sweep, 2 = rainbow reverse, etc.; see autocolor.go). speed
+// controls how fast the colors cycle (1-10, same scale as SetColorSpeed).
+func (c *Controller) DisplayTextAutoColor(ctx context.Context, s string, mode models.TextShowMode, speed, stayTime uint8, autoColorType int, fontName string) error {
+	width := c.cfg.Display.Columns
+	height := c.cfg.Display.Rows
+
+	autoColor, err := buildAutoColorContent(0, 0, width, height, autoColorType, speed)
+	if err != nil {
+		return err
+	}
+
+	centered := mode != models.TextShowModeScrollLeft && mode != models.TextShowModeScrollRight
+	textData := renderMonoTextData(s, width, centered)
+	textContent := buildTextContent(width, height, mode, speed, stayTime, 0, textData)
+
+	payload := wrapCompositeProgram(autoColor, textContent)
+	if err := c.sendProgram(ctx, payload); err != nil {
+		return fmt.Errorf("sending auto-color text program: %w", err)
+	}
+
+	c.logger.Info("auto-color text displayed",
+		"text", s,
+		"mode", mode.String(),
+		"auto_color_type", autoColorType,
+		"speed", speed,
+	)
+	return nil
+}
+
 // State returns the current device connection state.
 func (c *Controller) State() DeviceState {
 	c.mu.Lock()
@@ -907,31 +941,9 @@ func buildRawGIFProgram(startCol, startRow, width, height int, gifData []byte) [
 	return wrapProgram(protocol.BuildRawGIFContent(startCol, startRow, width, height, gifData))
 }
 
-// buildTextProgram assembles a text program payload.
-//
-//	Content: [totalLen:4 BE][0x01][0x00 x 7][layerType:1][startCol:2 BE][startRow:2 BE]
-//	         [width:2 BE][height:2 BE][mode:1][speed:1][stayTime:1][moveSpace:2 BE][textData...]
+// buildTextProgram assembles a text program payload (single content, wrapped).
 func buildTextProgram(width, height int, mode models.TextShowMode, speed, stayTime uint8, moveSpace uint16, textData []byte) []byte {
-	contentLen := 26 + len(textData)
-
-	content := make([]byte, contentLen)
-	binary.BigEndian.PutUint32(content[0:4], uint32(contentLen))
-	content[4] = 0x01 // text content type
-	// content[5:12] reserved zeros
-	content[12] = 0x01 // layer type (verified: must be 1)
-	binary.BigEndian.PutUint16(content[13:15], 0)             // start column
-	binary.BigEndian.PutUint16(content[15:17], 0)             // start row
-	binary.BigEndian.PutUint16(content[17:19], uint16(width)) // show width
-	binary.BigEndian.PutUint16(content[19:21], uint16(height))
-	content[21] = uint8(mode)
-	content[22] = speed
-	content[23] = stayTime
-	binary.BigEndian.PutUint16(content[24:26], moveSpace)
-	if len(textData) > 0 {
-		copy(content[26:], textData)
-	}
-
-	return wrapProgram(content)
+	return wrapProgram(buildTextContent(width, height, mode, speed, stayTime, moveSpace, textData))
 }
 
 // buildCustomColorTextProgram assembles a text content packet that uses the

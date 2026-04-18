@@ -476,6 +476,17 @@ func (h *Handlers) DisplayText(c *fiber.Ctx) error {
 		})
 	}
 
+	if req.AutoColorType > 0 {
+		if err := ctrl.DisplayTextAutoColor(c.Context(), req.Text, mode, req.Speed, req.StayTime, req.AutoColorType, req.Font); err != nil {
+			status := fiber.StatusInternalServerError
+			if strings.Contains(err.Error(), "not in range") {
+				status = fiber.StatusBadRequest
+			}
+			return c.Status(status).JSON(SuccessResponse{Success: false, Error: err.Error()})
+		}
+		return c.JSON(SuccessResponse{Success: true})
+	}
+
 	color, err := parseColor(req.Color)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(SuccessResponse{

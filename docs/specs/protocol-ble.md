@@ -229,6 +229,35 @@ Wrap, compress, and upload the same way as any other content (`WrapProgramPayloa
 
 **Encrypted variant (`getDataWithAnimationCombineProgramEncryped`, `:3202`).** First 32 bytes of the GIF are XOR'd with `0xDA`. Only used for app-bundled "material" GIFs; user-supplied GIFs are sent plain. Not implemented here.
 
+### Text auto-color content (type `0x05`)
+
+Content type `0x05` applies an animated color palette to monochrome text. It is uploaded as a **composite program** alongside a `0x01` text content block: the `0x05` block defines the color animation, and the `0x01` block carries the rendered text bitmap. The firmware applies the palette only to the text region (not full-screen), unlike the global `0x13/0x03` color mode command.
+
+```
+Offset  Size  Field                       Notes
+------  ----  --------------------------  -----------------------------
+0       4     Total length (incl. these)  BE uint32
+4       1     Content type                0x05
+5       7     Reserved                    0x00 * 7
+12      2     Start column                BE uint16
+14      2     Start row                   BE uint16
+16      2     Show width                  BE uint16
+18      2     Show height                 BE uint16
+20      1     Color anim mode             1-8 (animation style)
+21      1     Speed                       animation speed (1-10)
+22      1     Direction                   0-5 (variant within the mode)
+23      1     Reserved                    0x00
+24      2     Palette size                BE uint16 (byte count of palette data)
+26      N     Palette data                RGB444 bytes, 2 bytes per color [0R, GB]
+```
+
+28 `autoColorType` presets are defined (see `CoolledUXUtils.java:3655-3895`). Each maps to an `(animMode, direction)` pair and a palette:
+
+- Types 1-14 use an 88-byte (44-color) rainbow gradient cycling R-Y-G-C-B-M-R, with types 8-10 using a 12-byte (6-color) subset.
+- Types 15-28 reuse the same animMode/direction combos but with a 6-byte (3-color) fixed palette (`00,FF,0F,0F,0F,F0`).
+
+Composite upload order: `wrapCompositeProgram(autoColorContent_0x05, textContent_0x01)`. The `0x01` block uses monochrome `RenderMono` data (the legacy 16x16 glyph bitmap). Hardware-verified on 16x96 (2026-04-17): text renders with animated rainbow, not full-screen fill.
+
 For the countdown UI the APK uploads a **composite program** with two content blocks: a `0x03` animation (18-frame purple frame + hourglass, from `ic_countdown_bg_animation_1696.gif`) and a `0x0A` time-count overlay. The `0x0A` body is:
 
 ```

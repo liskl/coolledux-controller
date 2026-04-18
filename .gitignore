@@ -26,6 +26,8 @@ Thumbs.db
 
 # Go
 vendor/
+coverage.out
+coverage.html
 
 # Config with secrets (example is tracked)
 config.yaml

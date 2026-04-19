@@ -216,6 +216,20 @@ docker compose logs -f coolledux-controller
 
 ---
 
+## Issue Tracking (beads)
+
+This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+
+```bash
+bd ready              # Find available work
+bd show <id>          # View issue details
+bd update <id> --status in_progress  # Claim work
+bd close <id>         # Complete work
+bd sync               # Sync with git
+```
+
+---
+
 ## Critical Implementation Notes
 
 1. **Stream framing for everything.** All packets use `[0x01][len_BE][escaped][0x03]`. The `[0x52,0x52]` BLE header is NOT used. Verified on real hardware.

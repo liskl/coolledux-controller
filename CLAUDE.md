@@ -147,7 +147,7 @@ Two assets are extracted from the CoolLED 1248 APK at build time and are *not* c
 - `internal/text/fonts/unicode_16_bold.bin` -- the legacy 16x16 glyph bitmap
 - `internal/controller/assets/countdown_bg_1696.gif` -- the countdown overlay background
 
-Run `scripts/extract-assets.sh` once (expects `references/coolled-1248.apk`; see `CLAUDE.local.md` for how to obtain it) before the first build. Both paths are covered by `//go:embed`, so the build fails noisily if either is missing.
+Run `scripts/extract-assets.sh` once (expects `references/coolled-1248.apk`; see "Reference Materials" below) before the first build. Both paths are covered by `//go:embed`, so the build fails noisily if either is missing.
 
 ```bash
 ./scripts/extract-assets.sh                                     # one-time, requires the APK
@@ -166,6 +166,38 @@ Small helper binaries live under `cmd/`. None of them are part of the shipped se
 - `scripts/matrix-probe.py` -- draws pixel/line/rect/poly patterns on the matrix via REST.
 
 Three more dev binaries (`bletest`, `crctest`, `digit-dump`) are gitignored and only exist on developer machines.
+
+### Reference Materials
+
+The `references/` directory is gitignored (third-party artifacts, not for distribution).
+
+**Obtaining the APK:**
+
+The CoolLED 1248 Android app (package `com.jtkj.led1248`), pulled from a device via:
+```bash
+adb shell pm path com.jtkj.led1248
+adb pull /data/app/.../base.apk references/coolled-1248.apk
+```
+
+**Decompiling with jadx:**
+
+```bash
+curl -sL https://github.com/skylot/jadx/releases/download/v1.5.1/jadx-1.5.1.zip -o /tmp/jadx.zip
+unzip /tmp/jadx.zip -d /tmp/jadx
+/tmp/jadx/bin/jadx --no-res --no-debug-info -d references/apk-decompiled references/coolled-1248.apk
+```
+
+**Key decompiled files for protocol research:**
+
+| File | Contains |
+|------|----------|
+| `light/utils/CoolledUXUtils.java` | All BLE command builders (630KB). Every command code, packet format, timer/time sync, program upload, color control, LZSS compression. |
+| `light/utils/LightUtils.java` | Hex conversion, byte utilities, RGB444 encoding, stream framing. |
+| `light/device/DeviceManager.java` | BLE response parsing, device info field mapping (line 4247), program upload state machine. |
+| `light/device/ILedClockManager.java` | Alternative device manager for ILedClock variant. |
+| `light/coolledux/` | UI fragments for the CoolLEDUX device type (16x96, 16x192, etc.). |
+
+The Python SDK at `NunoMiguelVeloso/coolledux-controller` is also a reference but has incorrect command codes for this device firmware. Always prefer the APK decompilation for protocol details.
 
 ---
 

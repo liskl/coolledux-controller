@@ -9,7 +9,7 @@ FONTS_OUT="internal/text/fonts"
 COUNTDOWN_OUT="internal/controller/assets"
 
 if [[ ! -f "$APK" ]]; then
-    echo "error: $APK not found. See CLAUDE.local.md for how to obtain it." >&2
+    echo "error: $APK not found. See CLAUDE.md (Reference Materials) for how to obtain it." >&2
     exit 1
 fi
 

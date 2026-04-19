@@ -5,7 +5,7 @@ extracted from the CoolLED 1248 Android APK and **not committed** to this
 repo (see `.gitignore`). They must be present before `go build`.
 
 Run `scripts/extract-assets.sh` to populate this directory. It requires
-`references/coolled-1248.apk` (see `CLAUDE.local.md` for how to obtain it).
+`references/coolled-1248.apk` (see "Reference Materials" in `CLAUDE.md` for how to obtain it).
 
 ## Files
 

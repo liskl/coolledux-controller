@@ -34,7 +34,7 @@ Two assets are extracted from the CoolLED 1248 APK and are **not** checked in:
 - `internal/text/fonts/unicode_16_bold.bin` -- legacy 16x16 glyph bitmap
 - `internal/controller/assets/countdown_bg_1696.gif` -- countdown overlay background
 
-Run the extraction script once before the first build (it expects `references/coolled-1248.apk`; see `CLAUDE.local.md` for how to obtain the APK). Both files are referenced via `//go:embed`, so `go build` fails if either is missing.
+Run the extraction script once before the first build (it expects `references/coolled-1248.apk`; see "Reference Materials" in `CLAUDE.md` for how to obtain the APK). Both files are referenced via `//go:embed`, so `go build` fails if either is missing.
 
 ```bash
 ./scripts/extract-assets.sh

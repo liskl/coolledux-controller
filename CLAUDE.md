@@ -228,6 +228,29 @@ bd close <id>         # Complete work
 bd sync               # Sync with git
 ```
 
+## Session Completion
+
+When ending a work session, complete ALL steps below. Work is NOT complete until `git push` succeeds.
+
+1. **File issues for remaining work** -- create issues for anything that needs follow-up
+2. **Run quality gates** (if code changed) -- tests, linters, builds
+3. **Update issue status** -- close finished work, update in-progress items
+4. **Push to remote**:
+   ```bash
+   git pull --rebase
+   bd sync
+   git push
+   git status  # MUST show "up to date with origin"
+   ```
+5. **Clean up** -- clear stashes, prune remote branches
+6. **Verify** -- all changes committed AND pushed
+7. **Hand off** -- provide context for next session
+
+**Rules:**
+- Work is NOT complete until `git push` succeeds
+- Never stop before pushing -- that leaves work stranded locally
+- If push fails, resolve and retry until it succeeds
+
 ---
 
 ## Critical Implementation Notes

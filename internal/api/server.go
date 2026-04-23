@@ -53,6 +53,9 @@ func NewServer(ctrl *controller.Controller, cfg *config.Config, logger *slog.Log
 	app.Get("/fonts", h.ListFonts)
 	app.Get("/devices", h.ListDevices)
 	app.Post("/scan", h.ScanDevices)
+	app.Get("/openapi.yaml", h.GetOpenAPIYAML)
+	app.Get("/openapi.json", h.GetOpenAPIJSON)
+	app.Get("/docs", h.GetDocs)
 
 	// Per-device routes. Every device-addressed action is keyed by the
 	// registry ID (normalized MAC) in the URL; no "primary device"

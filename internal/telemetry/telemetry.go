@@ -32,7 +32,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 	"go.opentelemetry.io/otel/trace"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 
@@ -287,7 +287,7 @@ func buildResource(cfg *config.OTelConfig, info BuildInfo) (*resource.Resource, 
 		attrs = append(attrs, semconv.ServiceVersion(serviceVersion))
 	}
 	if info.Environment != "" {
-		attrs = append(attrs, semconv.DeploymentEnvironment(info.Environment))
+		attrs = append(attrs, semconv.DeploymentEnvironmentName(info.Environment))
 	}
 	for k, v := range cfg.ResourceAttrs {
 		attrs = append(attrs, attribute.String(k, v))

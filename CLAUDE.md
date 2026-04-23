@@ -65,6 +65,11 @@ coolledux-controller/
       handlers.go                   # Route handlers for all endpoints
       middleware.go                 # Structured logging, error recovery, CORS
       schemas.go                    # Request/response JSON structs
+      openapi.yaml / openapi.go     # Embedded OpenAPI 3.1 spec served at /openapi.{json,yaml} + /docs
+    telemetry/
+      telemetry.go                  # OTel Provider: traces + metrics + logs, no-op when disabled
+      exporters.go                  # OTLP gRPC/HTTP exporter factories per signal
+      slog.go                       # MultiHandler fanout (stdout + OTel log bridge)
     mqtt/
       client.go                     # MQTT connection, publish/subscribe, LWT, reconnect
       discovery.go                  # Home Assistant MQTT auto-discovery payload builders

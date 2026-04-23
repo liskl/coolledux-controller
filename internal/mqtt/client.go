@@ -8,10 +8,34 @@ import (
 	"time"
 
 	pahomqtt "github.com/eclipse/paho.mqtt.golang"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/liskl/coolledux-controller/internal/config"
 	"github.com/liskl/coolledux-controller/internal/registry"
 )
+
+// Telemetry globals. No-op when OTel is disabled.
+var (
+	mqttTracer trace.Tracer = otel.Tracer("github.com/liskl/coolledux-controller/internal/mqtt")
+	mqttMeter  metric.Meter = otel.Meter("github.com/liskl/coolledux-controller/internal/mqtt")
+
+	mqttMessagesOut metric.Int64Counter
+)
+
+func init() {
+	var err error
+	mqttMessagesOut, err = mqttMeter.Int64Counter(
+		"coolledux.mqtt.messages.out",
+		metric.WithDescription("MQTT messages published (discovery, state, availability)"),
+	)
+	if err != nil {
+		slog.Default().Warn("mqtt: out counter failed", "error", err)
+	}
+}
 
 // Client manages the MQTT connection, publishes HA discovery payloads, and
 // routes inbound command messages to per-device CommandHandlers.
@@ -43,7 +67,18 @@ func NewClient(cfg *config.MQTTConfig, reg *registry.Registry, logger *slog.Logg
 
 // Connect establishes the MQTT connection with LWT, auto-reconnect, and
 // discovery publishing on (re)connect.
-func (c *Client) Connect(ctx context.Context) error {
+func (c *Client) Connect(ctx context.Context) (err error) {
+	ctx, span := mqttTracer.Start(ctx, "mqtt.connect",
+		trace.WithAttributes(attribute.String("mqtt.broker", c.cfg.Broker)),
+	)
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
+
 	opts := pahomqtt.NewClientOptions().
 		AddBroker(c.cfg.Broker).
 		SetClientID(c.cfg.ClientID).
@@ -244,5 +279,10 @@ func (c *Client) publish(topic string, payload any, retain bool) {
 	}
 	if err := token.Error(); err != nil {
 		c.logger.Error("publish failed", "topic", topic, "error", err)
+		return
+	}
+	if mqttMessagesOut != nil {
+		mqttMessagesOut.Add(context.Background(), 1,
+			metric.WithAttributes(attribute.String("messaging.destination.name", topic)))
 	}
 }

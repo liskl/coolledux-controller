@@ -335,3 +335,88 @@ func TestResolveDevices_ExcludesLegacyMAC(t *testing.T) {
 		t.Errorf("expected empty, got %+v", got)
 	}
 }
+
+// --- OTel config ---
+
+func TestLoad_OTelDefaults(t *testing.T) {
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.OTel.Enabled {
+		t.Error("OTel should default to disabled")
+	}
+	if cfg.OTel.ServiceName != "coolledux-controller" {
+		t.Errorf("ServiceName = %q, want coolledux-controller", cfg.OTel.ServiceName)
+	}
+	if cfg.OTel.Protocol != "grpc" {
+		t.Errorf("Protocol = %q, want grpc", cfg.OTel.Protocol)
+	}
+	if !cfg.OTel.Insecure {
+		t.Error("Insecure should default to true")
+	}
+	if cfg.OTel.Timeout != 10*time.Second {
+		t.Errorf("Timeout = %v, want 10s", cfg.OTel.Timeout)
+	}
+	if cfg.OTel.Endpoint != "" {
+		t.Errorf("Endpoint should have no default, got %q", cfg.OTel.Endpoint)
+	}
+	if !cfg.OTel.Traces.Enabled || !cfg.OTel.Metrics.Enabled || !cfg.OTel.Logs.Enabled {
+		t.Errorf("per-signal defaults should all be enabled, got traces=%v metrics=%v logs=%v",
+			cfg.OTel.Traces.Enabled, cfg.OTel.Metrics.Enabled, cfg.OTel.Logs.Enabled)
+	}
+	if cfg.OTel.Metrics.Interval != 60*time.Second {
+		t.Errorf("metrics interval = %v, want 60s", cfg.OTel.Metrics.Interval)
+	}
+	if !cfg.OTel.Metrics.Runtime {
+		t.Error("metrics.runtime should default to true")
+	}
+}
+
+func TestOTelConfig_Validate_DisabledNoop(t *testing.T) {
+	// Disabled config never errors regardless of missing endpoint.
+	c := OTelConfig{Enabled: false}
+	if err := c.Validate(); err != nil {
+		t.Errorf("disabled config should validate: %v", err)
+	}
+}
+
+func TestOTelConfig_Validate_MissingEndpoint(t *testing.T) {
+	c := OTelConfig{Enabled: true, Protocol: "grpc"}
+	err := c.Validate()
+	if err == nil {
+		t.Fatal("expected error for enabled without endpoint")
+	}
+}
+
+func TestOTelConfig_Validate_PerSignalEndpointSatisfies(t *testing.T) {
+	c := OTelConfig{
+		Enabled: true,
+		Traces:  OTelSignalConfig{Endpoint: "tempo:4317"},
+	}
+	if err := c.Validate(); err != nil {
+		t.Errorf("should accept per-signal endpoint, got %v", err)
+	}
+}
+
+func TestOTelConfig_Validate_BadProtocol(t *testing.T) {
+	c := OTelConfig{Enabled: true, Endpoint: "h:4317", Protocol: "smoke-signals"}
+	if err := c.Validate(); err == nil {
+		t.Fatal("expected error for invalid protocol")
+	}
+}
+
+func TestOTelConfig_ResolveEndpoint_PerSignalOverride(t *testing.T) {
+	c := OTelConfig{Endpoint: "top:4317"}
+	signal := OTelSignalConfig{Endpoint: "override:4317"}
+	if got := c.ResolveEndpoint(signal); got != "override:4317" {
+		t.Errorf("ResolveEndpoint = %q, want override", got)
+	}
+}
+
+func TestOTelConfig_ResolveEndpoint_InheritsTop(t *testing.T) {
+	c := OTelConfig{Endpoint: "top:4317"}
+	if got := c.ResolveEndpoint(OTelSignalConfig{}); got != "top:4317" {
+		t.Errorf("ResolveEndpoint = %q, want top", got)
+	}
+}

@@ -60,7 +60,7 @@ func newTestRig(t *testing.T) *testRig {
 		t.Fatalf("registry add: %v", err)
 	}
 
-	srv := NewServer(ctrl, cfg, logger, reg)
+	srv := NewServer(ctrl, cfg, logger, reg, nil)
 	return &testRig{
 		srv:       srv,
 		bleClient: bleClient,
@@ -749,7 +749,7 @@ func TestScanDevices_NoRegistry_503(t *testing.T) {
 	// return 503 rather than panicking.
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ctrl := controller.New(nil, nil, testConfig(), logger)
-	srv := NewServer(ctrl, testConfig(), logger, nil)
+	srv := NewServer(ctrl, testConfig(), logger, nil, nil)
 
 	resp, _ := doJSONRequest(t, srv, http.MethodPost, "/scan", "")
 	if resp.StatusCode != http.StatusServiceUnavailable {
@@ -760,7 +760,7 @@ func TestScanDevices_NoRegistry_503(t *testing.T) {
 func TestListDevices_NoRegistry_503(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ctrl := controller.New(nil, nil, testConfig(), logger)
-	srv := NewServer(ctrl, testConfig(), logger, nil)
+	srv := NewServer(ctrl, testConfig(), logger, nil, nil)
 
 	resp, _ := doJSONRequest(t, srv, http.MethodGet, "/devices", "")
 	if resp.StatusCode != http.StatusServiceUnavailable {

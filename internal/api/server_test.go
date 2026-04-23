@@ -759,7 +759,7 @@ func TestCORSMiddleware_MultipleOrigins(t *testing.T) {
 	bleClient := ble.NewClient(logger)
 	transport := ble.NewTransport(bleClient, logger)
 	ctrl := controller.New(bleClient, transport, cfg, logger)
-	srv := NewServer(ctrl, cfg, logger, nil)
+	srv := NewServer(ctrl, cfg, logger, nil, nil)
 
 	req, err := http.NewRequest(http.MethodGet, "/health", nil)
 	if err != nil {
@@ -792,7 +792,7 @@ func TestRecoveryMiddleware_PanicHandler(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("registry add: %v", err)
 	}
-	srv := NewServer(ctrl, cfg, logger, reg)
+	srv := NewServer(ctrl, cfg, logger, reg, nil)
 
 	// SetPower with valid body on a nil-transport controller will panic.
 	body := strings.NewReader(`{"state":"on"}`)
@@ -958,7 +958,7 @@ func testServerWithRegistry(t *testing.T) (*Server, *registry.Registry) {
 		t.Fatalf("registry add: %v", err)
 	}
 
-	return NewServer(ctrl, cfg, logger, reg), reg
+	return NewServer(ctrl, cfg, logger, reg, nil), reg
 }
 
 func TestListDevices_Registered(t *testing.T) {
@@ -1036,7 +1036,7 @@ func TestCORSMiddleware_EmptyOrigins(t *testing.T) {
 	bleClient := ble.NewClient(logger)
 	transport := ble.NewTransport(bleClient, logger)
 	ctrl := controller.New(bleClient, transport, cfg, logger)
-	srv := NewServer(ctrl, cfg, logger, nil)
+	srv := NewServer(ctrl, cfg, logger, nil, nil)
 
 	req, err := http.NewRequest(http.MethodGet, "/health", nil)
 	if err != nil {

@@ -3,10 +3,12 @@ package api
 import (
 	"log/slog"
 
+	"github.com/gofiber/contrib/otelfiber/v2"
 	"github.com/gofiber/fiber/v2"
 	"github.com/liskl/coolledux-controller/internal/config"
 	"github.com/liskl/coolledux-controller/internal/controller"
 	"github.com/liskl/coolledux-controller/internal/registry"
+	"github.com/liskl/coolledux-controller/internal/telemetry"
 )
 
 // Server is the HTTP server that exposes the REST API.
@@ -19,8 +21,9 @@ type Server struct {
 // NewServer creates and configures a Fiber HTTP server with all routes
 // registered and middleware applied. The primary controller backs the
 // legacy single-device routes; the registry (optional) backs /devices
-// and /scan. Pass nil for reg in single-device tests.
-func NewServer(ctrl *controller.Controller, cfg *config.Config, logger *slog.Logger, reg *registry.Registry) *Server {
+// and /scan. Pass nil for reg in single-device tests. tel is optional;
+// nil falls back to no-op telemetry (useful in tests).
+func NewServer(ctrl *controller.Controller, cfg *config.Config, logger *slog.Logger, reg *registry.Registry, tel *telemetry.Provider) *Server {
 	app := fiber.New(fiber.Config{
 		// Return JSON errors instead of plaintext.
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
@@ -37,7 +40,16 @@ func NewServer(ctrl *controller.Controller, cfg *config.Config, logger *slog.Log
 		BodyLimit: 10 * 1024 * 1024,
 	})
 
-	// Apply middleware.
+	// Apply middleware. otelfiber goes first so request spans enclose
+	// recovery/logging output. When tel is nil (test path), otelfiber
+	// picks up the global no-op providers the telemetry package installs
+	// by default, so there's no observable difference.
+	if tel != nil {
+		app.Use(otelfiber.Middleware(
+			otelfiber.WithTracerProvider(tel.TracerProvider()),
+			otelfiber.WithMeterProvider(tel.MeterProvider()),
+		))
+	}
 	app.Use(RecoveryMiddleware(logger))
 	app.Use(LoggingMiddleware(logger))
 	app.Use(CORSMiddleware(cfg.API.CORSOrigins))

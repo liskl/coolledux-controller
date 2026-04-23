@@ -15,6 +15,7 @@ type Config struct {
 	MQTT    MQTTConfig    `mapstructure:"mqtt"`
 	API     APIConfig     `mapstructure:"api"`
 	Log     LogConfig     `mapstructure:"log"`
+	OTel    OTelConfig    `mapstructure:"otel"`
 }
 
 // BLEConfig holds Bluetooth Low Energy connection settings.
@@ -133,6 +134,108 @@ type LogConfig struct {
 	Format string `mapstructure:"format"`
 }
 
+// OTelConfig holds OpenTelemetry configuration. When Enabled is false,
+// the service runs with no-op tracer/meter/logger providers and no
+// network traffic — the feature is entirely opt-in.
+//
+// Endpoint has no default: you must set it explicitly when enabling
+// OTel. Typical values:
+//
+//   - In-cluster DaemonSet (gRPC):  otel-daemonset-collector.observability.svc.cluster.local:4317
+//   - In-cluster Gateway (gRPC):    otel-gateway-collector.observability.svc.cluster.local:4317
+//   - Same via OTLP HTTP:           http://otel-gateway-collector.observability.svc.cluster.local:4318
+//   - External (once exposed):      https://otel.home.liskl.com:4317
+//
+// Per-signal sub-blocks (Traces, Metrics, Logs) can override the
+// top-level Endpoint/Protocol when a single collector doesn't fan out
+// to every signal; leave them blank to inherit.
+type OTelConfig struct {
+	Enabled        bool              `mapstructure:"enabled"`
+	ServiceName    string            `mapstructure:"service_name"`
+	ServiceVersion string            `mapstructure:"service_version"`
+	Endpoint       string            `mapstructure:"endpoint"`
+	Protocol       string            `mapstructure:"protocol"` // "grpc" | "http"
+	Insecure       bool              `mapstructure:"insecure"`
+	Headers        map[string]string `mapstructure:"headers"`
+	Timeout        time.Duration     `mapstructure:"timeout"`
+	ResourceAttrs  map[string]string `mapstructure:"resource_attributes"`
+	Traces         OTelSignalConfig  `mapstructure:"traces"`
+	Metrics        OTelMetricsConfig `mapstructure:"metrics"`
+	Logs           OTelSignalConfig  `mapstructure:"logs"`
+}
+
+// OTelSignalConfig is the per-signal knob shared by traces/logs and
+// embedded by metrics. Endpoint/Protocol override the parent OTelConfig
+// values when non-empty.
+type OTelSignalConfig struct {
+	Enabled  bool   `mapstructure:"enabled"`
+	Endpoint string `mapstructure:"endpoint"`
+	Protocol string `mapstructure:"protocol"`
+}
+
+// OTelMetricsConfig adds metrics-specific settings on top of the shared
+// signal config.
+type OTelMetricsConfig struct {
+	OTelSignalConfig `mapstructure:",squash"`
+	// Interval is the metric export period. The SDK's default is 60s.
+	Interval time.Duration `mapstructure:"interval"`
+	// Runtime enables Go runtime metrics (heap, goroutines, GC, etc.)
+	// via go.opentelemetry.io/contrib/instrumentation/runtime.
+	Runtime bool `mapstructure:"runtime"`
+}
+
+// ResolveEndpoint returns the effective endpoint for a given signal: the
+// per-signal override if set, else the top-level OTelConfig endpoint.
+func (o *OTelConfig) ResolveEndpoint(signal OTelSignalConfig) string {
+	if signal.Endpoint != "" {
+		return signal.Endpoint
+	}
+	return o.Endpoint
+}
+
+// ResolveProtocol returns the effective protocol for a given signal: the
+// per-signal override if set, else the top-level OTelConfig protocol.
+func (o *OTelConfig) ResolveProtocol(signal OTelSignalConfig) string {
+	if signal.Protocol != "" {
+		return signal.Protocol
+	}
+	return o.Protocol
+}
+
+// Validate checks invariants that would make OTel init fail late: an
+// enabled provider with no endpoint is the biggest footgun, so surface
+// it at config-load time instead of after the first span attempts a
+// connect.
+func (o *OTelConfig) Validate() error {
+	if !o.Enabled {
+		return nil
+	}
+	if o.Endpoint == "" && o.Traces.Endpoint == "" && o.Metrics.Endpoint == "" && o.Logs.Endpoint == "" {
+		return fmt.Errorf("otel.enabled is true but no otel.endpoint (or per-signal endpoint) is set; see docs/operations/observability.md")
+	}
+	switch o.Protocol {
+	case "", "grpc", "http":
+		// OK (empty only allowed if every signal overrides).
+	default:
+		return fmt.Errorf("otel.protocol %q is invalid; must be \"grpc\" or \"http\"", o.Protocol)
+	}
+	for _, s := range []struct {
+		name string
+		sig  OTelSignalConfig
+	}{
+		{"traces", o.Traces},
+		{"metrics", o.Metrics.OTelSignalConfig},
+		{"logs", o.Logs},
+	} {
+		switch s.sig.Protocol {
+		case "", "grpc", "http":
+		default:
+			return fmt.Errorf("otel.%s.protocol %q is invalid; must be \"grpc\" or \"http\"", s.name, s.sig.Protocol)
+		}
+	}
+	return nil
+}
+
 // DeviceID derives a device identifier from the legacy BLE MAC address
 // by stripping colons and lowercasing. For example, "01:00:00:FB:A4:16"
 // becomes "010000fba416". Kept for the single-device path; multi-device
@@ -190,6 +293,19 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")
 
+	// OpenTelemetry: disabled by default. No endpoint default — must be set
+	// explicitly when enabling. See docs/operations/observability.md.
+	v.SetDefault("otel.enabled", false)
+	v.SetDefault("otel.service_name", "coolledux-controller")
+	v.SetDefault("otel.protocol", "grpc")
+	v.SetDefault("otel.insecure", true)
+	v.SetDefault("otel.timeout", "10s")
+	v.SetDefault("otel.traces.enabled", true)
+	v.SetDefault("otel.metrics.enabled", true)
+	v.SetDefault("otel.metrics.interval", "60s")
+	v.SetDefault("otel.metrics.runtime", true)
+	v.SetDefault("otel.logs.enabled", true)
+
 	// Environment variables: COOLLEDUX_BLE_DEVICE_NAME -> ble.device_name
 	v.SetEnvPrefix("COOLLEDUX")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
@@ -210,6 +326,10 @@ func Load(path string) (*Config, error) {
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("unmarshaling config: %w", err)
+	}
+
+	if err := cfg.OTel.Validate(); err != nil {
+		return nil, fmt.Errorf("otel config: %w", err)
 	}
 
 	return &cfg, nil

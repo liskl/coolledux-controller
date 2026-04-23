@@ -7,9 +7,57 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/liskl/coolledux-controller/internal/protocol"
 	"tinygo.org/x/bluetooth"
 )
+
+// tracer and meter are lazily resolved from the global OTel providers
+// that telemetry.New installs. When telemetry is disabled, the globals
+// are OTel's no-op implementations, so these calls are free.
+var (
+	tracer trace.Tracer = otel.Tracer("github.com/liskl/coolledux-controller/internal/ble")
+	meter  metric.Meter = otel.Meter("github.com/liskl/coolledux-controller/internal/ble")
+
+	bleBytesOut    metric.Int64Counter
+	bleSendLatency metric.Float64Histogram
+	bleReconnects  metric.Int64Counter
+)
+
+func init() {
+	// Instrument creation errors are logged but non-fatal — a failing
+	// meter shouldn't bring the service down. The no-op fallback below
+	// keeps call sites working.
+	var err error
+	bleBytesOut, err = meter.Int64Counter(
+		"coolledux.ble.bytes.out",
+		metric.WithDescription("BLE bytes written to the panel's write characteristic"),
+		metric.WithUnit("By"),
+	)
+	if err != nil {
+		slog.Default().Warn("ble: failed to create bytes counter", "error", err)
+	}
+	bleSendLatency, err = meter.Float64Histogram(
+		"coolledux.ble.send.duration",
+		metric.WithDescription("Duration of a full framed BLE send (all chunks)"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		slog.Default().Warn("ble: failed to create send latency histogram", "error", err)
+	}
+	bleReconnects, err = meter.Int64Counter(
+		"coolledux.ble.reconnects.total",
+		metric.WithDescription("Count of BLE reconnect attempts"),
+	)
+	if err != nil {
+		slog.Default().Warn("ble: failed to create reconnects counter", "error", err)
+	}
+}
 
 // Client manages a BLE connection to the CoolLEDUX LED matrix device.
 // It handles scanning, connecting, service/characteristic discovery,
@@ -41,7 +89,18 @@ func NewClient(logger *slog.Logger) *Client {
 //
 // If a previous disconnect happened less than ReconnectDelay ago, Connect
 // waits for the cooldown to elapse before proceeding.
-func (c *Client) Connect(ctx context.Context, deviceMAC string) error {
+func (c *Client) Connect(ctx context.Context, deviceMAC string) (err error) {
+	ctx, span := tracer.Start(ctx, "ble.connect",
+		trace.WithAttributes(attribute.String("ble.address", deviceMAC)),
+	)
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
+
 	c.mu.Lock()
 	if c.connected {
 		c.mu.Unlock()
@@ -253,7 +312,7 @@ func (c *Client) Disconnect() error {
 
 // Send writes data to the BLE characteristic, splitting it into chunks of
 // maxPayload bytes. Each chunk is written sequentially with WriteWithoutResponse.
-func (c *Client) Send(ctx context.Context, data []byte) error {
+func (c *Client) Send(ctx context.Context, data []byte) (err error) {
 	c.mu.Lock()
 	if !c.connected {
 		c.mu.Unlock()
@@ -268,6 +327,25 @@ func (c *Client) Send(ctx context.Context, data []byte) error {
 	}
 
 	numChunks := (len(data) + maxPayload - 1) / maxPayload
+	start := time.Now()
+	ctx, span := tracer.Start(ctx, "ble.send",
+		trace.WithAttributes(
+			attribute.Int("ble.bytes.total", len(data)),
+			attribute.Int("ble.chunks", numChunks),
+			attribute.Int("ble.chunk_size", maxPayload),
+		),
+	)
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+		if bleSendLatency != nil {
+			bleSendLatency.Record(ctx, time.Since(start).Seconds())
+		}
+	}()
+
 	for offset := 0; offset < len(data); offset += maxPayload {
 		select {
 		case <-ctx.Done():
@@ -283,6 +361,9 @@ func (c *Client) Send(ctx context.Context, data []byte) error {
 
 		if _, err := c.char.WriteWithoutResponse(chunk); err != nil {
 			return fmt.Errorf("writing chunk at offset %d: %w", offset, err)
+		}
+		if bleBytesOut != nil {
+			bleBytesOut.Add(ctx, int64(len(chunk)))
 		}
 
 		// The device needs time between MTU-sized writes, especially for
@@ -331,6 +412,9 @@ func (c *Client) OverrideSendFuncForTest(fn func(ctx context.Context, data []byt
 // Reconnect disconnects (if connected) and then reconnects to the device,
 // respecting the reconnect cooldown.
 func (c *Client) Reconnect(ctx context.Context, deviceMAC string) error {
+	if bleReconnects != nil {
+		bleReconnects.Add(ctx, 1, metric.WithAttributes(attribute.String("ble.address", deviceMAC)))
+	}
 	c.logger.Info("reconnecting", "mac", deviceMAC)
 	if err := c.Disconnect(); err != nil {
 		c.logger.Warn("disconnect error during reconnect", "error", err)

@@ -60,3 +60,42 @@ api:
 log:
   level: "info"     # debug, info, warn, error
   format: "json"    # json, text
+
+# OpenTelemetry: off by default. When enabled, traces/metrics/logs are
+# pushed to the configured OTLP endpoint. No endpoint default is baked
+# in — you must set it explicitly to opt in.
+#
+# See docs/operations/observability.md for the homelab cheatsheet
+# (Tempo search, Loki query, Grafana dashboards) and the gRPC vs HTTP
+# decision matrix.
+#
+# otel:
+#   enabled: true
+#   service_name: "coolledux-controller"
+#   service_version: ""           # falls back to Go build info when empty
+#
+#   # Single endpoint for all signals. The cluster's collectors accept
+#   # OTLP gRPC on :4317 and OTLP HTTP on :4318.
+#   # Homelab cluster-internal (when the service runs as a pod):
+#   endpoint: "otel-daemonset-collector.observability.svc.cluster.local:4317"
+#   protocol: "grpc"              # grpc | http
+#   insecure: true                # set false for TLS (uses system certs)
+#   timeout: "10s"
+#   # headers: {authorization: "Bearer <token>"}
+#
+#   # Resource attributes added to every signal.
+#   resource_attributes:
+#     deployment.environment: "homelab"
+#
+#   traces:
+#     enabled: true
+#     # endpoint: ""              # inherits from otel.endpoint
+#     # protocol: ""              # inherits from otel.protocol
+#
+#   metrics:
+#     enabled: true
+#     interval: "60s"             # push cadence
+#     runtime: true               # Go runtime metrics (heap, goroutines, GC)
+#
+#   logs:
+#     enabled: true               # bridges log/slog records into OTel logs -> Loki

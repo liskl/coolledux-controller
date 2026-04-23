@@ -9,6 +9,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/zachomedia/go-bdf v0.0.0-20220611021443-a3af701111be
 	golang.org/x/image v0.39.0
+	gopkg.in/yaml.v3 v3.0.1
 	tinygo.org/x/bluetooth v0.14.0
 )
 

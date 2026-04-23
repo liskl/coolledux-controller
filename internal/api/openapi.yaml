@@ -1,0 +1,1259 @@
+openapi: 3.1.0
+info:
+  title: CoolLEDUX Controller REST API
+  version: 1.0.0
+  summary: Control one or more CoolLEDUX 16x96 full-color LED matrix panels over BLE.
+  description: |
+    The controller exposes a REST surface over Fiber v2 on the configured listen
+    address (default `:8080`). Every mutating request returns a JSON
+    `SuccessResponse` (`{"success":true}` on success, `{"success":false,"error":"..."}`
+    on failure). Request bodies are limited to 10 MB to accommodate image and GIF
+    uploads.
+
+    Every device-addressed endpoint is keyed by the panel's registry ID (the
+    normalized MAC: lowercase, no colons). For example the MAC
+    `01:00:00:FB:A4:16` becomes the ID `010000fba416`. Use `GET /devices` to
+    list the IDs currently registered; `POST /scan` discovers nearby panels
+    without modifying the registry.
+
+    Protocol details that don't belong in an API contract (packet framing,
+    LZSS, firmware quirks) live in `docs/specs/protocol-ble.md` and the human
+    companion `docs/specs/protocol-rest.md`.
+  license:
+    name: MIT
+servers:
+  - url: http://localhost:8080
+    description: Default API listen address
+tags:
+  - name: Service
+    description: Service-level endpoints (health, registry, discovery, spec).
+  - name: Display Control
+    description: Power, brightness, orientation, time, channel, timers.
+  - name: Display Content
+    description: Text, image, and GIF rendering.
+  - name: Color
+    description: Global tint and preset color animations.
+  - name: Overlays
+    description: Countdown, stopwatch, and scoreboard overlays.
+  - name: Security
+    description: Panel password verification and setting.
+  - name: Debug
+    description: Developer probes; unstable, may change or disappear.
+paths:
+  /openapi.json:
+    get:
+      tags: [Service]
+      summary: OpenAPI spec (JSON)
+      description: Returns this specification as JSON, converted from the embedded YAML.
+      operationId: getOpenAPIJSON
+      responses:
+        '200':
+          description: OpenAPI 3.1 document
+          content:
+            application/json:
+              schema:
+                type: object
+  /openapi.yaml:
+    get:
+      tags: [Service]
+      summary: OpenAPI spec (YAML)
+      description: Returns this specification as YAML.
+      operationId: getOpenAPIYAML
+      responses:
+        '200':
+          description: OpenAPI 3.1 document
+          content:
+            application/yaml:
+              schema:
+                type: string
+  /docs:
+    get:
+      tags: [Service]
+      summary: Swagger UI
+      description: |
+        Serves a Swagger UI page that loads `/openapi.json`. The page pulls CSS
+        and JS from a public CDN (`unpkg.com`); offline deployments should
+        render the spec with their own tooling.
+      operationId: getDocs
+      responses:
+        '200':
+          description: HTML Swagger UI page
+          content:
+            text/html:
+              schema:
+                type: string
+  /health:
+    get:
+      tags: [Service]
+      summary: Service health
+      description: Reports service status, BLE/MQTT connection flags, and uptime.
+      operationId: getHealth
+      responses:
+        '200':
+          description: Health report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                healthy:
+                  value: {status: ok, ble_connected: true, mqtt_connected: false, uptime_seconds: 3600}
+  /fonts:
+    get:
+      tags: [Service]
+      summary: List available fonts
+      description: Returns every font face available to `POST /device/{id}/text`.
+      operationId: listFonts
+      responses:
+        '200':
+          description: Registered fonts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FontsResponse'
+  /devices:
+    get:
+      tags: [Service]
+      summary: List registered devices
+      description: |
+        Returns every device currently in the registry and its per-device
+        connection state. Returns 503 if the server was started without a
+        registry (single-device test harnesses only).
+      operationId: listDevices
+      responses:
+        '200':
+          description: Registered devices
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceListResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /scan:
+    post:
+      tags: [Service]
+      summary: Scan for nearby CoolLEDUX panels
+      description: |
+        Runs a BLE scan (scan timeout from config, default 5s) and returns every
+        CoolLEDUX advertiser seen. Each result reports whether the panel is
+        already in the registry (`registered`) and whether the configured
+        exclusion list filters it out (`excluded`). Scanning does not modify
+        the registry.
+      operationId: scanDevices
+      responses:
+        '200':
+          description: Scan results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /device/{id}/info:
+    get:
+      tags: [Display Control]
+      summary: Read device state
+      description: Queries the device over BLE and returns its identity and state (command `0x1F`).
+      operationId: getDeviceInfo
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      responses:
+        '200':
+          description: Device info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceInfo'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /device/{id}/power:
+    post:
+      tags: [Display Control]
+      summary: Power on/off
+      operationId: setPower
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PowerRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /device/{id}/brightness:
+    post:
+      tags: [Display Control]
+      summary: Set brightness
+      description: Sets display brightness (command `0x04`, 0-255).
+      operationId: setBrightness
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrightnessRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /device/{id}/flip:
+    post:
+      tags: [Display Control]
+      summary: Set mirror/flip mode
+      description: Sets display orientation (command `0x0C`).
+      operationId: setFlip
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlipRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /device/{id}/channel:
+    post:
+      tags: [Display Control]
+      summary: Switch program/channel slot
+      description: Selects which stored program slot the panel plays. 0-9 verified working; higher slots untested.
+      operationId: setChannel
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /device/{id}/time:
+    post:
+      tags: [Display Control]
+      summary: Sync device clock
+      description: |
+        Sets the panel's clock. When `hour`, `minute`, and `second` are all 0
+        (or the body is omitted) the service sends the current system time.
+      operationId: syncTime
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TimeRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /device/{id}/timer:
+    get:
+      tags: [Display Control]
+      summary: Read the device's timer table
+      description: |
+        Returns the raw bytes the panel sends back for the timer read command.
+        Parsing the format is the caller's responsibility (see
+        `docs/specs/protocol-ble.md`).
+      operationId: getTimers
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      responses:
+        '200':
+          description: Raw timer payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimerReadResponse'
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+    post:
+      tags: [Display Control]
+      summary: Configure the device timer schedule
+      operationId: setTimers
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TimerRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /device/{id}/show-id:
+    post:
+      tags: [Display Control]
+      summary: Toggle device-ID display on the idle screen
+      description: Maps to BLE command `0x1E` subtype `0x01`. Affects the default/idle scroll text only.
+      operationId: setShowDeviceID
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceInfoToggleRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /device/{id}/remote:
+    post:
+      tags: [Display Control]
+      summary: Toggle the panel's remote-control mode
+      description: Maps to BLE command `0x1E` subtype `0x02`.
+      operationId: setRemote
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceInfoToggleRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /device/{id}/password/check:
+    post:
+      tags: [Security]
+      summary: Verify the panel password
+      description: |
+        Sends BLE command `0x0D`. Returns 200 when the device accepts the
+        password, 401 when the device rejects it, 400 for invalid input (wrong
+        length or non-hex characters).
+      operationId: checkPassword
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /device/{id}/password/set:
+    post:
+      tags: [Security]
+      summary: Write a new panel password
+      description: |
+        Sends BLE command `0x0E`. The new password is persisted on the device.
+        Forgetting it will lock the panel out of BLE control.
+      operationId: setPassword
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /device/{id}/text:
+    post:
+      tags: [Display Content]
+      summary: Display text
+      description: |
+        Renders the given string through the selected font, uploads it as a
+        program (content type `0x01`, or composite `0x05`+`0x01` when
+        `auto_color_type > 0`), and starts playback.
+
+        Font names: see `GET /fonts`. `font_size` is accepted for backward
+        compatibility but ignored; each registered font has a fixed cell size.
+
+        The `mode` enum has names that differ from the APK's labels because
+        several APK labels don't match the firmware's behavior on this
+        hardware. See `docs/specs/protocol-rest.md` for the per-mode notes.
+      operationId: displayText
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TextRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /device/{id}/image:
+    post:
+      tags: [Display Content]
+      summary: Display a static image
+      description: |
+        Decodes a base64 PNG/JPEG/BMP, resizes it according to `fit`, encodes
+        to RGB444, LZSS-compresses, and uploads.
+
+        Placement: `x`/`y`/`width`/`height` default to the full 96x16 matrix.
+        `width` or `height` of `0` means "fill remaining space from the
+        offset". The placement rectangle must fit within 96x16 or the request
+        fails with 500.
+      operationId: displayImage
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /device/{id}/gif:
+    post:
+      tags: [Display Content]
+      summary: Display a GIF
+      description: |
+        Default path (`raw:false`) decodes the GIF on the service side, resizes
+        every frame, and uploads a frame-per-frame animation program
+        (`0x03`).
+
+        `raw:true` opts into content type `0x0C` (firmware v30+), where the
+        GIF is uploaded verbatim and decoded on-device. `frame_duration` and
+        `fit` are ignored in raw mode. Older firmware silently fails for
+        `0x0C`.
+      operationId: displayGIF
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GIFRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /device/{id}/color:
+    post:
+      tags: [Color]
+      summary: Set global tint color
+      description: Sets the panel's global tint color (command `0x13` subtype `0x01`).
+      operationId: setColor
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ColorRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /device/{id}/color/mode:
+    post:
+      tags: [Color]
+      summary: Activate a color animation preset
+      description: |
+        Triggers one of the built-in color animations (command `0x13`
+        subtype `0x03`). Valid IDs are `1`, `2`, `5`-`31`. Modes `3` and
+        `4` are rejected with 400 because the APK resolves them to an
+        empty no-op. See `docs/specs/protocol-ble.md` "Color Mode and
+        Speed" for the per-mode parameter semantics.
+      operationId: setColorMode
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ColorModeRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /device/{id}/color/speed:
+    post:
+      tags: [Color]
+      summary: Set color animation cycle speed
+      description: |
+        Adjusts cycle speed of the active color animation (command `0x13`
+        subtype `0x02`). Integer 1-10. No-op unless a color mode is active.
+      operationId: setColorSpeed
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ColorSpeedRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /device/{id}/countdown:
+    post:
+      tags: [Overlays]
+      summary: Countdown timer overlay
+      description: |
+        Action-based overlay. `action:"show"` uploads the composite program
+        (content types `0x03` animation + `0x0a` time-count) and starts the
+        firmware timer via command `0x0F`. `set`/`start`/`stop`/`status` drive
+        the already-uploaded program without re-uploading.
+      operationId: countdown
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CountdownRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /device/{id}/stopwatch:
+    post:
+      tags: [Overlays]
+      summary: Stopwatch overlay
+      description: |
+        Action-based overlay. `action:"show"` uploads the composite stopwatch
+        program and starts the firmware via command `0x10`.
+        `reset`/`start`/`stop`/`status` drive it after upload.
+      operationId: stopwatch
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StopwatchRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /device/{id}/scoreboard:
+    post:
+      tags: [Overlays]
+      summary: Scoreboard overlay
+      description: |
+        Action-based overlay. `action:"show"` uploads the composite scoreboard
+        program (content type `0x0b` + animation) and starts the firmware
+        clock via command `0x11 04 01`. `set_scores` updates immediately;
+        `set_time` only latches while the clock is stopped on 16x96 firmware.
+      operationId: scoreboard
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScoreboardRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /device/{id}/debug/timecount:
+    post:
+      tags: [Debug]
+      summary: Probe the firmware's time-count digit bitmap (dev only)
+      description: |
+        Experimental. Uploads a hex-encoded 39-byte bitmap in place of the
+        APK's digit bitmap and starts the countdown for byte-to-pixel-layout
+        reverse engineering. Not part of the stable API; may be removed.
+      operationId: debugTimecount
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CountdownProbeRequest'
+      responses:
+        '200': {$ref: '#/components/responses/Success'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+components:
+  parameters:
+    DeviceID:
+      name: id
+      in: path
+      required: true
+      description: |
+        Registry ID of the target panel: the normalized BLE MAC address,
+        lowercase with no colons. E.g. `010000fba416`. Obtain from
+        `GET /devices`.
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{12}$'
+        example: 010000fba416
+  responses:
+    Success:
+      description: Operation accepted
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SuccessResponse'
+          examples:
+            ok:
+              value: {success: true}
+    BadRequest:
+      description: Invalid request body, unparseable field, or rejected input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SuccessResponse'
+          examples:
+            bad:
+              value: {success: false, error: 'invalid request body: ...'}
+    Unauthorized:
+      description: Device rejected the password (only `/password/check` and `/password/set`)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SuccessResponse'
+          examples:
+            rejected:
+              value: {success: false, error: 'password rejected by device'}
+    NotFound:
+      description: No registered device matches `:id`
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SuccessResponse'
+          examples:
+            missing:
+              value: {success: false, error: 'device 010000fba416 not registered'}
+    InternalError:
+      description: BLE transport, controller, or encoding error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SuccessResponse'
+          examples:
+            ble:
+              value: {success: false, error: 'not connected'}
+    ServiceUnavailable:
+      description: Server was started without a device registry (single-device test harness)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SuccessResponse'
+          examples:
+            noreg:
+              value: {success: false, error: 'device registry not configured'}
+  schemas:
+    SuccessResponse:
+      type: object
+      description: Standard envelope for mutating operations.
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        error:
+          type: string
+          description: Human-readable description when `success` is false.
+    HealthResponse:
+      type: object
+      required: [status, ble_connected, mqtt_connected, uptime_seconds]
+      properties:
+        status:
+          type: string
+          example: ok
+        ble_connected:
+          type: boolean
+        mqtt_connected:
+          type: boolean
+          description: MQTT integration is wired separately from the HTTP server; this is always reported as false by `/health`.
+        uptime_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+    FontInfo:
+      type: object
+      required: [name, description, advance_px, line_px, monospace]
+      properties:
+        name:
+          type: string
+          description: Pass this value as the `font` field of `TextRequest`.
+        description:
+          type: string
+        advance_px:
+          type: integer
+          description: Glyph advance width in pixels.
+        line_px:
+          type: integer
+          description: Line height in pixels.
+        monospace:
+          type: boolean
+    FontsResponse:
+      type: object
+      required: [default, fonts]
+      properties:
+        default:
+          type: string
+          example: 7x13
+        fonts:
+          type: array
+          items:
+            $ref: '#/components/schemas/FontInfo'
+    DeviceListEntry:
+      type: object
+      required: [id, name, mac, connected]
+      properties:
+        id:
+          type: string
+          description: Normalized MAC (lowercase, no colons).
+          example: 010000fba416
+        name:
+          type: string
+          description: Registry-assigned name (e.g. `primary`, `secondary`).
+        mac:
+          type: string
+          description: Canonical colon-separated MAC.
+          example: '01:00:00:FB:A4:16'
+        connected:
+          type: boolean
+    DeviceListResponse:
+      type: object
+      required: [success, devices]
+      properties:
+        success:
+          type: boolean
+        devices:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceListEntry'
+    ScanResult:
+      type: object
+      required: [mac, name, rssi, registered, excluded]
+      properties:
+        mac:
+          type: string
+          description: Canonical colon-separated MAC advertised by the panel.
+        name:
+          type: string
+          description: BLE local name.
+        rssi:
+          type: integer
+          format: int16
+          description: Signal strength in dBm (negative).
+        registered:
+          type: boolean
+          description: True if the normalized MAC is already present in the device registry.
+        excluded:
+          type: boolean
+          description: True if the configured BLE exclusion list filters this MAC out of auto-registration.
+    ScanResponse:
+      type: object
+      required: [success, results]
+      properties:
+        success:
+          type: boolean
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScanResult'
+    FlipMode:
+      type: string
+      description: Display orientation.
+      enum: [none, horizontal, vertical, both]
+    TextShowMode:
+      type: string
+      description: |
+        Playback mode for text and image programs. Names may diverge from APK
+        labels because the firmware's behavior on this hardware doesn't match
+        some APK labels.
+      enum:
+        - static
+        - scroll_left
+        - scroll_right
+        - scroll_up
+        - scroll_down
+        - wipe_down
+        - expand_from_center
+        - blink
+        - zoom_in
+        - zoom_out
+        - wipe_left
+        - wipe_right
+        - collapse_to_center
+    FitMode:
+      type: string
+      description: How a source image is mapped onto the placement region.
+      enum: [letterbox, stretch, cover]
+      default: letterbox
+    HexColor:
+      type: string
+      description: Hex color, `#RRGGBB` or `RRGGBB`. Empty string means "keep the current color".
+      pattern: '^#?[0-9a-fA-F]{6}$|^$'
+      example: '#FF8800'
+    DeviceInfo:
+      type: object
+      description: Parsed response from BLE command `0x1F`.
+      required:
+        - power
+        - brightness
+        - flip_mode
+        - mic_supported
+        - mic_enabled
+        - mic_mode
+        - show_device_id
+        - max_program_number
+        - remote_enabled
+        - connected
+      properties:
+        power:
+          type: boolean
+        brightness:
+          type: integer
+          minimum: 0
+          maximum: 255
+        flip_mode:
+          type: integer
+          minimum: 0
+          maximum: 3
+          description: 'Numeric flip mode (see FlipMode enum: 0 none, 1 horizontal, 2 vertical, 3 both).'
+        mic_supported:
+          type: boolean
+        mic_enabled:
+          type: boolean
+        mic_mode:
+          type: integer
+          minimum: 0
+          maximum: 255
+        show_device_id:
+          type: boolean
+        max_program_number:
+          type: integer
+          minimum: 0
+          maximum: 255
+        remote_enabled:
+          type: boolean
+        extended_data:
+          type: string
+          format: byte
+          description: Base64-encoded raw bytes from indices 10-18 of the BLE response. Not fully mapped.
+        ble_address:
+          type: string
+          description: Canonical colon-separated MAC. Populated by the service, not from the BLE response.
+        ble_name:
+          type: string
+        connected:
+          type: boolean
+    PowerRequest:
+      type: object
+      required: [state]
+      properties:
+        state:
+          type: string
+          enum: [on, off]
+          description: Case-insensitive.
+    BrightnessRequest:
+      type: object
+      required: [brightness]
+      properties:
+        brightness:
+          type: integer
+          minimum: 0
+          maximum: 255
+    FlipRequest:
+      type: object
+      required: [mode]
+      properties:
+        mode:
+          $ref: '#/components/schemas/FlipMode'
+    ChannelRequest:
+      type: object
+      required: [channel]
+      properties:
+        channel:
+          type: integer
+          minimum: 0
+          maximum: 255
+          description: Slot index; 0-9 verified working.
+    TimeRequest:
+      type: object
+      properties:
+        hour:
+          type: integer
+          minimum: 0
+          maximum: 23
+        minute:
+          type: integer
+          minimum: 0
+          maximum: 59
+        second:
+          type: integer
+          minimum: 0
+          maximum: 59
+      description: |
+        Omit fields or send all zeros to use the service's current system
+        time.
+    TimerItem:
+      type: object
+      required: [enable, hour, minute, days, power_on]
+      properties:
+        enable:
+          type: boolean
+        hour:
+          type: integer
+          minimum: 0
+          maximum: 23
+        minute:
+          type: integer
+          minimum: 0
+          maximum: 59
+        days:
+          type: integer
+          minimum: 0
+          maximum: 127
+          description: |
+            Day-of-week bitmask. 0x01 Mon, 0x02 Tue, 0x04 Wed, 0x08 Thu,
+            0x10 Fri, 0x20 Sat, 0x40 Sun. Common combinations: 0x1F
+            weekdays, 0x60 weekends, 0x7F daily.
+        power_on:
+          type: boolean
+          description: True to power on at the scheduled time, false to power off.
+    TimerRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimerItem'
+    TimerReadResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+        data:
+          type: string
+          format: byte
+          description: Base64-encoded raw bytes from the panel's timer-read response.
+    DeviceInfoToggleRequest:
+      type: object
+      required: [on]
+      properties:
+        on:
+          type: boolean
+    PasswordRequest:
+      type: object
+      required: [password]
+      properties:
+        password:
+          type: string
+          description: |
+            Panel password. The underlying protocol builder enforces length
+            and character constraints; invalid values return 400 with the
+            builder's error string.
+          example: '1234'
+    TextRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+        mode:
+          $ref: '#/components/schemas/TextShowMode'
+        speed:
+          type: integer
+          minimum: 0
+          maximum: 255
+          description: Scroll/animation speed. Scale is firmware-defined; higher is faster.
+        color:
+          $ref: '#/components/schemas/HexColor'
+        font_size:
+          type: integer
+          description: Accepted for backward compatibility but ignored. Each registered font has a fixed cell size.
+        stay_time:
+          type: integer
+          minimum: 0
+          maximum: 255
+          description: Dwell time in firmware-defined units after each animation pass.
+        font:
+          type: string
+          description: Registered font name (see `GET /fonts`). Empty selects the default (`7x13`).
+        auto_color_type:
+          type: integer
+          minimum: 0
+          maximum: 28
+          description: |
+            0 = disabled, single solid `color`. 1-28 activate a content
+            type `0x05` auto-color overlay preset that animates a palette
+            over the text pixels; `color` is ignored in that mode. See
+            `docs/specs/protocol-rest.md` for preset notes.
+    ImageRequest:
+      type: object
+      required: [image_base64]
+      properties:
+        image_base64:
+          type: string
+          format: byte
+          description: Base64-encoded PNG, JPEG, or BMP.
+        mode:
+          $ref: '#/components/schemas/TextShowMode'
+        speed:
+          type: integer
+          minimum: 0
+          maximum: 255
+        stay_time:
+          type: integer
+          minimum: 0
+          maximum: 255
+        fit:
+          $ref: '#/components/schemas/FitMode'
+        x:
+          type: integer
+          minimum: 0
+          maximum: 95
+          default: 0
+        y:
+          type: integer
+          minimum: 0
+          maximum: 15
+          default: 0
+        width:
+          type: integer
+          minimum: 0
+          maximum: 96
+          default: 96
+          description: 0 means "fill remaining width from `x`".
+        height:
+          type: integer
+          minimum: 0
+          maximum: 16
+          default: 16
+          description: 0 means "fill remaining height from `y`".
+    GIFRequest:
+      type: object
+      required: [gif_base64]
+      properties:
+        gif_base64:
+          type: string
+          format: byte
+          description: Base64-encoded GIF.
+        frame_duration:
+          type: integer
+          minimum: 0
+          maximum: 65535
+          description: Override per-frame duration in milliseconds for the decoded-on-host path. Ignored when `raw:true`.
+        fit:
+          $ref: '#/components/schemas/FitMode'
+        x:
+          type: integer
+          minimum: 0
+          maximum: 95
+          default: 0
+        y:
+          type: integer
+          minimum: 0
+          maximum: 15
+          default: 0
+        width:
+          type: integer
+          minimum: 0
+          maximum: 96
+          default: 96
+        height:
+          type: integer
+          minimum: 0
+          maximum: 16
+          default: 16
+        raw:
+          type: boolean
+          default: false
+          description: |
+            When true, upload the GIF verbatim via content type `0x0C` for
+            firmware v30+ to decode on-device. `frame_duration` and `fit`
+            are ignored. Older firmware silently fails.
+    ColorRequest:
+      type: object
+      required: [color]
+      properties:
+        color:
+          $ref: '#/components/schemas/HexColor'
+    ColorModeRequest:
+      type: object
+      required: [mode]
+      properties:
+        mode:
+          type: integer
+          description: Animation preset. Valid IDs are 1, 2, 5-31. Modes 3 and 4 are rejected (empty palette in the APK).
+          example: 10
+    ColorSpeedRequest:
+      type: object
+      required: [speed]
+      properties:
+        speed:
+          type: integer
+          minimum: 1
+          maximum: 10
+    CountdownAction:
+      type: string
+      enum: [show, set, start, stop, status]
+    CountdownRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          $ref: '#/components/schemas/CountdownAction'
+        hour:
+          type: integer
+          minimum: 0
+          maximum: 23
+          description: Used by `show` and `set`.
+        minute:
+          type: integer
+          minimum: 0
+          maximum: 59
+          description: Used by `show` and `set`.
+        second:
+          type: integer
+          minimum: 0
+          maximum: 59
+          description: Used by `show` and `set`.
+        color:
+          allOf: [{$ref: '#/components/schemas/HexColor'}]
+          description: Used by `show`; defaults to white.
+    StopwatchAction:
+      type: string
+      enum: [show, reset, start, stop, status]
+    StopwatchRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          $ref: '#/components/schemas/StopwatchAction'
+        color:
+          allOf: [{$ref: '#/components/schemas/HexColor'}]
+          description: Used by `show`; defaults to white.
+    ScoreboardAction:
+      type: string
+      enum: [show, set_scores, set_time, start, stop, status]
+    ScoreboardRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          $ref: '#/components/schemas/ScoreboardAction'
+        score_a:
+          type: integer
+          minimum: 0
+          maximum: 65535
+          description: Host main score (used by `set_scores`).
+        score_b:
+          type: integer
+          minimum: 0
+          maximum: 65535
+          description: Visit main score (used by `set_scores`).
+        total_a:
+          type: integer
+          minimum: 0
+          maximum: 255
+          description: Host period/set counter (used by `set_scores`).
+        total_b:
+          type: integer
+          minimum: 0
+          maximum: 255
+          description: Visit period/set counter (used by `set_scores`).
+        hour:
+          type: integer
+          minimum: 0
+          maximum: 23
+          description: Used by `set_time`.
+        minute:
+          type: integer
+          minimum: 0
+          maximum: 59
+          description: Used by `set_time`.
+        is_timer:
+          type: boolean
+          description: Used by `set_time`; selects timer vs real-time clock interpretation.
+        color:
+          allOf: [{$ref: '#/components/schemas/HexColor'}]
+          description: Used by `show`; defaults to white.
+    CountdownProbeRequest:
+      type: object
+      required: [probe_hex]
+      properties:
+        probe_hex:
+          type: string
+          description: Exactly 78 hex chars (39 bytes). Used for all 10 digit positions.
+          pattern: '^[0-9a-fA-F]{78}$'
+        color:
+          allOf: [{$ref: '#/components/schemas/HexColor'}]
+          description: Optional tint; defaults to white.

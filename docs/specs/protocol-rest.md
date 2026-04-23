@@ -2,6 +2,8 @@
 
 Fiber v2, default port `:8080`.
 
+**Machine-readable counterpart:** `internal/api/openapi.yaml` (OpenAPI 3.1). The running service publishes it at `GET /openapi.yaml` and `GET /openapi.json`, with a Swagger UI at `GET /docs`. A package test in `internal/api/openapi_test.go` fails CI if the registered Fiber routes drift from the spec.
+
 Every device-addressed endpoint is keyed by the panel's registry ID (the normalized MAC — lowercase, no colons; `01:00:00:FB:A4:16` becomes `010000fba416`). Use `GET /devices` to list the IDs currently registered; `POST /scan` discovers nearby panels without modifying the registry. Startup auto-populates the registry when `ble.devices` is empty and `ble.scan_on_startup` isn't explicitly disabled.
 
 ## Endpoints

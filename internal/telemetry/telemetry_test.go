@@ -144,11 +144,12 @@ func TestSlogHandler_DisabledReturnsStdoutOnly(t *testing.T) {
 	}
 }
 
-// providerType returns the Go type name of v as a string. Used to avoid
-// importing the OTel noop package paths when checking provider kind.
-// %T is the unambiguous tool here; previous use of slog.AnyValue(v).String()
-// returned the value's stringification, which only happened to contain
-// "noop" by coincidence of the noop providers' default %v format.
+// providerType returns the Go type name of v as a string, used by the
+// fallback substring check when the direct type assertion against the
+// noop provider type fails. %T is the unambiguous tool for this; the
+// previous slog.AnyValue(v).String() implementation only happened to
+// contain "noop" by coincidence of the noop providers' default %v
+// formatting and would not have survived an SDK formatting change.
 func providerType(v any) string {
 	return fmt.Sprintf("%T", v)
 }

@@ -67,6 +67,15 @@ type Provider struct {
 	// per-record work before discarding.
 	logsEnabled bool
 
+	// tracesEnabled / metricsEnabled mirror logsEnabled for the other
+	// two signals. Same rationale: the noop providers short-circuit
+	// most work, but library wrappers (otelfiber, etc.) still do
+	// per-request span/option construction even against noops. Callers
+	// that own middleware registration consult these flags so they
+	// can skip the wrapper entirely when its signal is off.
+	tracesEnabled  bool
+	metricsEnabled bool
+
 	// stdoutHandler is the existing JSON/text handler main already owns;
 	// it flows through as the first destination of SlogHandler() when
 	// OTel is enabled. Copied here so callers don't have to thread it
@@ -123,6 +132,7 @@ func New(ctx context.Context, cfg *config.OTelConfig, info BuildInfo, stdoutHand
 			sdktrace.WithResource(res),
 		)
 		p.tracerProvider = tp
+		p.tracesEnabled = true
 		p.shutdownFns = append(p.shutdownFns, tp.Shutdown)
 	} else {
 		p.tracerProvider = tracenoop.NewTracerProvider()
@@ -147,6 +157,7 @@ func New(ctx context.Context, cfg *config.OTelConfig, info BuildInfo, stdoutHand
 			sdkmetric.WithResource(res),
 		)
 		p.meterProvider = mp
+		p.metricsEnabled = true
 		p.shutdownFns = append(p.shutdownFns, mp.Shutdown)
 
 		// Go runtime metrics (heap, goroutines, GC).
@@ -223,6 +234,21 @@ func ensureSlogHandler(h slog.Handler) slog.Handler {
 // configuration. Useful for "log that telemetry is active" one-shots.
 func (p *Provider) Enabled() bool {
 	return p.enabled
+}
+
+// TracesEnabled reports whether a real (non-noop) TracerProvider was
+// wired. Callers that register tracing middleware (otelfiber,
+// otelhttp, etc.) should gate registration on this so the per-request
+// wrapper isn't installed when traces are off.
+func (p *Provider) TracesEnabled() bool {
+	return p.tracesEnabled
+}
+
+// MetricsEnabled reports whether a real (non-noop) MeterProvider was
+// wired. Mirrors TracesEnabled for HTTP/RPC libraries that record
+// histograms — skip the wrapper when metrics are off.
+func (p *Provider) MetricsEnabled() bool {
+	return p.metricsEnabled
 }
 
 // TracerProvider returns the underlying OTel TracerProvider.

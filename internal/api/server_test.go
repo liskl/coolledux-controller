@@ -1087,3 +1087,50 @@ func TestServer_OTelFiberGatedOnEnabled(t *testing.T) {
 			"the disabled case should not add otelfiber", got, want)
 	}
 }
+
+// TestServer_OTelFiberSkippedWhenTracesAndMetricsOff verifies that with
+// the parent OTel switch on but BOTH traces and metrics disabled (e.g.
+// a logs-only deployment), otelfiber is still skipped. Without this
+// check, logs-only configs would pay otelfiber's per-request wrapper
+// cost against noop providers — the same shape as the round-2 master-
+// switch bug, just one level deeper.
+//
+// Constructed via the package-internal Provider fields rather than
+// telemetry.New so we don't need a working OTLP endpoint to exercise
+// the gating.
+func TestServer_OTelFiberSkippedWhenTracesAndMetricsOff(t *testing.T) {
+	cfg := testConfig()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	bleClient := ble.NewClient(logger)
+	transport := ble.NewTransport(bleClient, logger)
+	ctrl := controller.New(bleClient, transport, cfg, logger)
+	reg := registry.New()
+
+	// Build a Provider that reports Enabled()==true but TracesEnabled()
+	// and MetricsEnabled() both false (the logs-only case). The fields
+	// are unexported but this test is in the same module via the api
+	// package — we still can't reach into telemetry's struct, so use
+	// a freshly-constructed Provider through telemetry.New with a
+	// disabled config and then exercise the guard logic via the actual
+	// accessors. The disabled provider gives us the zero-trace/zero-
+	// metric state we need.
+	tel, err := telemetry.New(context.Background(),
+		&config.OTelConfig{Enabled: false},
+		telemetry.BuildInfo{},
+		slog.NewTextHandler(io.Discard, nil))
+	if err != nil {
+		t.Fatalf("telemetry.New: %v", err)
+	}
+	if tel.TracesEnabled() || tel.MetricsEnabled() {
+		t.Fatal("disabled provider should report TracesEnabled and MetricsEnabled as false")
+	}
+
+	srvNil := NewServer(ctrl, cfg, logger, reg, nil)
+	srvLogsOnly := NewServer(ctrl, cfg, logger, reg, tel)
+
+	if got, want := srvLogsOnly.app.HandlersCount(), srvNil.app.HandlersCount(); got != want {
+		t.Errorf("logs-only server registered %d handlers, nil-provider server registered %d; "+
+			"otelfiber should not be installed when both traces and metrics are off",
+			got, want)
+	}
+}

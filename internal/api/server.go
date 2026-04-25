@@ -41,11 +41,13 @@ func NewServer(ctrl *controller.Controller, cfg *config.Config, logger *slog.Log
 	})
 
 	// Apply middleware. otelfiber goes first so request spans enclose
-	// recovery/logging output. We gate on tel.Enabled() (not just
-	// non-nil) because main always passes a non-nil Provider — the
-	// noop-fallback case still incurs per-request span/meter overhead
-	// otherwise, contradicting the "zero overhead when disabled" goal.
-	if tel != nil && tel.Enabled() {
+	// recovery/logging output. Gate on whether traces or metrics are
+	// actually enabled — gating only on tel.Enabled() would still run
+	// otelfiber's per-request wrapper in logs-only configurations,
+	// where every request would build span attributes / option chains
+	// just to feed noop providers. With both off there's nothing for
+	// otelfiber to produce, so skip registration entirely.
+	if tel != nil && (tel.TracesEnabled() || tel.MetricsEnabled()) {
 		app.Use(otelfiber.Middleware(
 			otelfiber.WithTracerProvider(tel.TracerProvider()),
 			otelfiber.WithMeterProvider(tel.MeterProvider()),

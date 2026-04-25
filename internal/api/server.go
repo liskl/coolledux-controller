@@ -41,10 +41,11 @@ func NewServer(ctrl *controller.Controller, cfg *config.Config, logger *slog.Log
 	})
 
 	// Apply middleware. otelfiber goes first so request spans enclose
-	// recovery/logging output. When tel is nil (test path), otelfiber
-	// picks up the global no-op providers the telemetry package installs
-	// by default, so there's no observable difference.
-	if tel != nil {
+	// recovery/logging output. We gate on tel.Enabled() (not just
+	// non-nil) because main always passes a non-nil Provider — the
+	// noop-fallback case still incurs per-request span/meter overhead
+	// otherwise, contradicting the "zero overhead when disabled" goal.
+	if tel != nil && tel.Enabled() {
 		app.Use(otelfiber.Middleware(
 			otelfiber.WithTracerProvider(tel.TracerProvider()),
 			otelfiber.WithMeterProvider(tel.MeterProvider()),

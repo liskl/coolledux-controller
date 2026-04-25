@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"github.com/liskl/coolledux-controller/internal/config"
 	"github.com/liskl/coolledux-controller/internal/controller"
 	"github.com/liskl/coolledux-controller/internal/registry"
+	"github.com/liskl/coolledux-controller/internal/telemetry"
 )
 
 func testConfig() *config.Config {
@@ -1051,5 +1053,37 @@ func TestCORSMiddleware_EmptyOrigins(t *testing.T) {
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+// TestServer_OTelFiberGatedOnEnabled verifies that a non-nil but disabled
+// telemetry provider produces the same handler chain as nil. Without the
+// gating fix, otelfiber would still be registered when OTel is off,
+// silently violating the "zero overhead when disabled" contract.
+func TestServer_OTelFiberGatedOnEnabled(t *testing.T) {
+	cfg := testConfig()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	bleClient := ble.NewClient(logger)
+	transport := ble.NewTransport(bleClient, logger)
+	ctrl := controller.New(bleClient, transport, cfg, logger)
+	reg := registry.New()
+
+	disabledTel, err := telemetry.New(context.Background(),
+		&config.OTelConfig{Enabled: false},
+		telemetry.BuildInfo{},
+		slog.NewTextHandler(io.Discard, nil))
+	if err != nil {
+		t.Fatalf("telemetry.New(disabled): %v", err)
+	}
+	if disabledTel.Enabled() {
+		t.Fatal("expected disabled provider to report Enabled() == false")
+	}
+
+	srvNil := NewServer(ctrl, cfg, logger, reg, nil)
+	srvDisabled := NewServer(ctrl, cfg, logger, reg, disabledTel)
+
+	if got, want := srvDisabled.app.HandlersCount(), srvNil.app.HandlersCount(); got != want {
+		t.Errorf("disabled-provider server registered %d handlers, nil-provider server registered %d; "+
+			"the disabled case should not add otelfiber", got, want)
 	}
 }

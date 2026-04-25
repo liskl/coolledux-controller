@@ -144,6 +144,27 @@ func TestSlogHandler_DisabledReturnsStdoutOnly(t *testing.T) {
 	}
 }
 
+// TestSlogHandler_HonorsLogsEnabledFlag is the regression for the
+// per-signal logs toggle bug: with cfg.Enabled=true but
+// cfg.Logs.Enabled=false, SlogHandler must return the bare stdout
+// handler — not a multiHandler over a noop LoggerProvider, which
+// still pays the per-record translation cost.
+func TestSlogHandler_HonorsLogsEnabledFlag(t *testing.T) {
+	stdout := &recordingHandler{}
+	// Construct a Provider that mirrors what New() builds when
+	// cfg.Enabled=true but cfg.Logs.Enabled=false: enabled flag set,
+	// logsEnabled flag NOT set, loggerProvider is the noop.
+	p := newNoop(stdout)
+	p.enabled = true
+	// p.logsEnabled stays false by default, matching the
+	// "logs disabled" branch in New().
+
+	if got := p.SlogHandler(); got != stdout {
+		t.Errorf("SlogHandler with logsEnabled=false should return stdout handler verbatim; "+
+			"got %T (likely a multiHandler over a noop LoggerProvider, defeating the per-signal disable)", got)
+	}
+}
+
 // TestNew_NilStdoutHandlerNormalizes is the regression for the nil-panic
 // bug Copilot caught. New() and newNoop() must guarantee SlogHandler()
 // never produces a nil-bearing multiHandler nor a bare nil that would

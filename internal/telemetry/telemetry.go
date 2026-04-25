@@ -58,6 +58,15 @@ type Provider struct {
 	// e.g. "should I register a slog bridge?".
 	enabled bool
 
+	// logsEnabled is true only when cfg.Enabled && cfg.Logs.Enabled and
+	// New() therefore wired a real LoggerProvider. SlogHandler() uses
+	// it to short-circuit the slog.Record→otel.Record translation and
+	// multi-handler fanout when logs are off — without this, the
+	// per-signal disable flag still incurs per-record overhead because
+	// otelslog.NewHandler over a noop LoggerProvider still does the
+	// per-record work before discarding.
+	logsEnabled bool
+
 	// stdoutHandler is the existing JSON/text handler main already owns;
 	// it flows through as the first destination of SlogHandler() when
 	// OTel is enabled. Copied here so callers don't have to thread it
@@ -166,6 +175,7 @@ func New(ctx context.Context, cfg *config.OTelConfig, info BuildInfo, stdoutHand
 			sdklog.WithResource(res),
 		)
 		p.loggerProvider = lp
+		p.logsEnabled = true
 		p.shutdownFns = append(p.shutdownFns, lp.Shutdown)
 	} else {
 		p.loggerProvider = lognoop.NewLoggerProvider()
@@ -243,11 +253,16 @@ func (p *Provider) Meter(name string) metric.Meter {
 }
 
 // SlogHandler returns a slog.Handler that writes to the stdout handler
-// and, when OTel is enabled, also mirrors every record into the OTel
-// log bridge so it lands in Loki via the collector. Safe to call on
-// disabled providers — returns just the stdout handler in that case.
+// and, when OTel logs are enabled, also mirrors every record into the
+// OTel log bridge so it lands in Loki via the collector. Safe to call
+// on disabled providers — returns just the stdout handler in that
+// case. The check is on logsEnabled (not just enabled) because a
+// disabled-but-not-overall-disabled config (cfg.Enabled=true,
+// cfg.Logs.Enabled=false) should also bypass the bridge entirely; the
+// noop LoggerProvider would otherwise still pay the per-record
+// otelslog translation cost before discarding.
 func (p *Provider) SlogHandler() slog.Handler {
-	if !p.enabled {
+	if !p.logsEnabled {
 		return p.stdoutHandler
 	}
 	// The first arg to otelslog.NewHandler is the OTel instrumentation

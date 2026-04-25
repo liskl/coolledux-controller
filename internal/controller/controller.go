@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -694,7 +695,7 @@ func (c *Controller) DisplayRawGIF(ctx context.Context, gifData []byte, x, y, wi
 // shipped today.
 func (c *Controller) DisplayText(ctx context.Context, s string, mode models.TextShowMode, speed, stayTime uint8, fontSize int, color uint32, fontName string) (err error) {
 	ctx, end := startSpan(ctx, "controller.display_text",
-		attribute.Int("text.length", len([]rune(s))),
+		attribute.Int("text.length", utf8.RuneCountInString(s)),
 		attribute.String("text.mode", mode.String()),
 		attribute.Int("text.color", int(color&0xFFFFFF)),
 		attribute.String("text.font", fontName),

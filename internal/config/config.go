@@ -257,7 +257,8 @@ func (o *OTelConfig) Validate() error {
 	}
 	switch o.Protocol {
 	case "", "grpc", "http":
-		// OK (empty only allowed if every signal overrides).
+		// OK. Empty falls back to "grpc" via protocolFor; per-signal
+		// Protocol values can still override that default.
 	default:
 		return fmt.Errorf("otel.protocol %q is invalid; must be \"grpc\" or \"http\"", o.Protocol)
 	}

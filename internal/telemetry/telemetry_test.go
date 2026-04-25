@@ -144,6 +144,31 @@ func TestSlogHandler_DisabledReturnsStdoutOnly(t *testing.T) {
 	}
 }
 
+// TestNew_NilStdoutHandlerNormalizes is the regression for the nil-panic
+// bug Copilot caught. New() and newNoop() must guarantee SlogHandler()
+// never produces a nil-bearing multiHandler nor a bare nil that would
+// panic in slog.New(handler).
+func TestNew_NilStdoutHandlerNormalizes(t *testing.T) {
+	// Disabled path: nil should become a discard handler, not stay nil.
+	disabled, err := New(context.Background(), &config.OTelConfig{Enabled: false}, BuildInfo{}, nil)
+	if err != nil {
+		t.Fatalf("New(disabled, nil handler): %v", err)
+	}
+	h := disabled.SlogHandler()
+	if h == nil {
+		t.Fatal("disabled provider with nil stdout returned nil handler")
+	}
+	// A bare slog.Logger backed by it must not panic on first record.
+	logger := slog.New(h)
+	logger.Info("smoke", "k", "v") // would panic under the old code path
+
+	// newNoop directly: same guarantee.
+	noop := newNoop(nil)
+	if noop.stdoutHandler == nil {
+		t.Error("newNoop(nil) stored nil stdoutHandler — SlogHandler() will panic later")
+	}
+}
+
 // providerType returns the Go type name of v as a string, used by the
 // fallback substring check when the direct type assertion against the
 // noop provider type fails. %T is the unambiguous tool for this; the

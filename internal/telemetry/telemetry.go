@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"runtime/debug"
 	"sync"
@@ -79,8 +80,11 @@ type BuildInfo struct {
 // false, returns a no-op Provider immediately (no network, no
 // goroutines). stdoutHandler is the existing slog handler to keep
 // writing to stdout; it's combined with the OTel log bridge in
-// SlogHandler().
+// SlogHandler(). A nil stdoutHandler is normalized to a discard handler
+// so SlogHandler() can never produce a nil-bearing multiHandler that
+// would panic on the first record.
 func New(ctx context.Context, cfg *config.OTelConfig, info BuildInfo, stdoutHandler slog.Handler) (*Provider, error) {
+	stdoutHandler = ensureSlogHandler(stdoutHandler)
 	if cfg == nil || !cfg.Enabled {
 		return newNoop(stdoutHandler), nil
 	}
@@ -183,13 +187,26 @@ func New(ctx context.Context, cfg *config.OTelConfig, info BuildInfo, stdoutHand
 // newNoop constructs a Provider whose accessors return OTel no-op
 // implementations. stdoutHandler is preserved so SlogHandler() still
 // returns the existing slog destination even when telemetry is off.
+// A nil handler is normalized to a discard handler — SlogHandler()'s
+// callers run slog.New(p.SlogHandler()), which would panic on a nil
+// destination, so the package guarantees non-nil here.
 func newNoop(stdoutHandler slog.Handler) *Provider {
 	return &Provider{
 		tracerProvider: tracenoop.NewTracerProvider(),
 		meterProvider:  metricnoop.NewMeterProvider(),
 		loggerProvider: lognoop.NewLoggerProvider(),
-		stdoutHandler:  stdoutHandler,
+		stdoutHandler:  ensureSlogHandler(stdoutHandler),
 	}
+}
+
+// ensureSlogHandler returns h, or a discard JSON handler when h is nil.
+// Centralizing the default here keeps both New() and newNoop() honest
+// without duplicating the import-of-discard boilerplate.
+func ensureSlogHandler(h slog.Handler) slog.Handler {
+	if h != nil {
+		return h
+	}
+	return slog.NewJSONHandler(io.Discard, nil)
 }
 
 // Enabled reports whether the provider was built from a live OTel

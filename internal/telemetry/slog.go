@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 )
 
@@ -20,8 +21,28 @@ type multiHandler struct {
 // NewMultiHandler is exported for tests and any caller that wants to
 // compose multiple slog handlers. The regular service path uses
 // Provider.SlogHandler() which returns a *multiHandler when enabled.
+//
+// nil entries in the variadic are filtered out (consistent with the
+// telemetry package's "forgiving > runtime panic" stance — see the
+// nil-stdoutHandler default in telemetry.go's ensureSlogHandler).
+// After filtering: zero handlers → discard handler; one handler →
+// returned directly without the multi-handler wrapper; otherwise the
+// surviving handlers are wrapped.
 func NewMultiHandler(handlers ...slog.Handler) slog.Handler {
-	return &multiHandler{handlers: handlers}
+	filtered := make([]slog.Handler, 0, len(handlers))
+	for _, h := range handlers {
+		if h != nil {
+			filtered = append(filtered, h)
+		}
+	}
+	switch len(filtered) {
+	case 0:
+		return slog.NewJSONHandler(io.Discard, nil)
+	case 1:
+		return filtered[0]
+	default:
+		return &multiHandler{handlers: filtered}
+	}
 }
 
 // Enabled reports whether any underlying handler wants the record.

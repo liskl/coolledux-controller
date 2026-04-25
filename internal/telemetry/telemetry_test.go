@@ -136,6 +136,41 @@ func TestMultiHandler_FansOut(t *testing.T) {
 	}
 }
 
+// TestNewMultiHandler_FiltersNil is the regression for the nil-panic
+// bug in NewMultiHandler — passing nil entries used to produce a
+// multiHandler that panicked on first record. Verifies the four cases:
+// all nils → discard, one survivor → returned directly, mixed →
+// surviving handlers fan out, no nils → original behavior.
+func TestNewMultiHandler_FiltersNil(t *testing.T) {
+	t.Run("all nils returns discard handler", func(t *testing.T) {
+		h := NewMultiHandler(nil, nil)
+		// Must not panic on use.
+		slog.New(h).Info("smoke")
+	})
+
+	t.Run("one survivor returned without wrapper", func(t *testing.T) {
+		real := &recordingHandler{}
+		h := NewMultiHandler(nil, real, nil)
+		if h != real {
+			t.Errorf("expected the lone non-nil handler, got %T", h)
+		}
+		slog.New(h).Info("hit")
+		if len(real.records) != 1 {
+			t.Errorf("survivor got %d records, want 1", len(real.records))
+		}
+	})
+
+	t.Run("mixed nils and reals fan out to reals only", func(t *testing.T) {
+		a := &recordingHandler{}
+		b := &recordingHandler{}
+		h := NewMultiHandler(nil, a, nil, b)
+		slog.New(h).Info("hit")
+		if len(a.records) != 1 || len(b.records) != 1 {
+			t.Errorf("a=%d b=%d, both want 1", len(a.records), len(b.records))
+		}
+	})
+}
+
 func TestSlogHandler_DisabledReturnsStdoutOnly(t *testing.T) {
 	stdout := &recordingHandler{}
 	p := newNoop(stdout)

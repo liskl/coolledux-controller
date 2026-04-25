@@ -109,7 +109,11 @@ type recordingHandler struct {
 
 func (r *recordingHandler) Enabled(context.Context, slog.Level) bool { return true }
 func (r *recordingHandler) Handle(_ context.Context, rec slog.Record) error {
-	r.records = append(r.records, rec)
+	// slog.Record docs: "Handlers that store records must call Clone first."
+	// The production multiHandler already clones; this test handler should
+	// match so it's robust against future slog runtime changes that pool
+	// internal attr storage.
+	r.records = append(r.records, rec.Clone())
 	return nil
 }
 func (r *recordingHandler) WithAttrs(attrs []slog.Attr) slog.Handler { return r }

@@ -240,8 +240,10 @@ func (o *OTelConfig) endpointConfigured() bool {
 // construction time. Validate accepts presence of any of those env vars
 // as satisfying the "endpoint is configured" requirement.
 //
-// Precedence: YAML > COOLLEDUX_OTEL_* > OTEL_EXPORTER_OTLP_* > SDK
-// defaults (no endpoint, exporter ultimately fails to dial).
+// Precedence (highest wins): COOLLEDUX_OTEL_* > YAML > OTEL_EXPORTER_OTLP_*
+// > SDK defaults (no endpoint, exporter ultimately fails to dial).
+// Viper applies env-over-config because Load() registers AutomaticEnv
+// before ReadInConfig.
 func (o *OTelConfig) Validate() error {
 	if !o.Enabled {
 		return nil

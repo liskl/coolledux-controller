@@ -133,12 +133,14 @@ curl -s localhost:8080/health
 
 ## Precedence rules
 
-1. YAML config (`config.yaml`)
-2. `COOLLEDUX_*` env vars (Viper override)
-3. Standard `OTEL_*` env vars (the SDK reads these natively when options are left unset)
+Highest wins:
+
+1. `COOLLEDUX_*` env vars (Viper applies `AutomaticEnv` before reading the config file, so env overrides YAML)
+2. YAML config (`config.yaml`)
+3. Standard `OTEL_*` env vars (the SDK reads these natively when no option was passed by our code, i.e. when YAML and `COOLLEDUX_*` are both blank)
 4. SDK built-in defaults
 
-So a production deployment can override any setting without a config-file change by setting, e.g., `COOLLEDUX_OTEL_ENDPOINT=otel.internal:4317`.
+So a production deployment can override any setting without a config-file change by setting, e.g., `COOLLEDUX_OTEL_ENDPOINT=otel.internal:4317`. If you'd rather skip our env layer entirely and use the upstream OTel env contract, leave the YAML/`COOLLEDUX_*` keys blank and set `OTEL_EXPORTER_OTLP_ENDPOINT` directly.
 
 ### Endpoint validation and the `OTEL_*` fallback
 

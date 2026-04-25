@@ -115,7 +115,7 @@ func New(ctx context.Context, cfg *config.OTelConfig, info BuildInfo, stdoutHand
 	if cfg.Traces.Enabled {
 		exporter, err := newTraceExporter(ctx, cfg)
 		if err != nil {
-			_ = p.Shutdown(context.Background())
+			cleanupShutdown(p)
 			return nil, fmt.Errorf("trace exporter: %w", err)
 		}
 		tp := sdktrace.NewTracerProvider(
@@ -132,7 +132,7 @@ func New(ctx context.Context, cfg *config.OTelConfig, info BuildInfo, stdoutHand
 	if cfg.Metrics.Enabled {
 		exporter, err := newMetricExporter(ctx, cfg)
 		if err != nil {
-			_ = p.Shutdown(context.Background())
+			cleanupShutdown(p)
 			return nil, fmt.Errorf("metric exporter: %w", err)
 		}
 		interval := cfg.Metrics.Interval
@@ -166,7 +166,7 @@ func New(ctx context.Context, cfg *config.OTelConfig, info BuildInfo, stdoutHand
 	if cfg.Logs.Enabled {
 		exporter, err := newLogExporter(ctx, cfg)
 		if err != nil {
-			_ = p.Shutdown(context.Background())
+			cleanupShutdown(p)
 			return nil, fmt.Errorf("log exporter: %w", err)
 		}
 		processor := sdklog.NewBatchProcessor(exporter)
@@ -275,6 +275,19 @@ func (p *Provider) SlogHandler() slog.Handler {
 		otelslog.WithLoggerProvider(p.loggerProvider),
 	)
 	return &multiHandler{handlers: []slog.Handler{p.stdoutHandler, otelHandler}}
+}
+
+// cleanupShutdown is the constructor's failure-cleanup path. Uses a
+// fresh bounded context rather than reusing the caller's ctx because by
+// the time we land here the caller may have cancelled (request timeout,
+// shutdown signal, etc.), and a cancelled ctx would skip cleanup
+// entirely. Standalone WithTimeout guarantees a best-effort flush of
+// whatever providers we did manage to construct, without hanging
+// New() forever on a stuck exporter.
+func cleanupShutdown(p *Provider) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = p.Shutdown(ctx)
 }
 
 // Shutdown flushes and closes every registered provider. Safe to call

@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -145,6 +146,9 @@ func TestSlogHandler_DisabledReturnsStdoutOnly(t *testing.T) {
 
 // providerType returns the Go type name of v as a string. Used to avoid
 // importing the OTel noop package paths when checking provider kind.
+// %T is the unambiguous tool here; previous use of slog.AnyValue(v).String()
+// returned the value's stringification, which only happened to contain
+// "noop" by coincidence of the noop providers' default %v format.
 func providerType(v any) string {
-	return slog.AnyValue(v).String()
+	return fmt.Sprintf("%T", v)
 }

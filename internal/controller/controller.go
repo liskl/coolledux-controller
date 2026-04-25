@@ -889,11 +889,17 @@ func (c *Controller) sendProgram(ctx context.Context, programPayload []byte) (er
 	c.programState = ProgramSendingData
 	c.mu.Unlock()
 
+	// chunksCtx is scoped to the per-chunk send/ack work. Critically, do
+	// NOT reassign the outer ctx to chunksCtx: the deferred metric
+	// recording above uses ctx, and the SDK's exemplar capture reads the
+	// SpanContext (immutable once Start returns) at Record time. If we
+	// shadowed ctx here, upload-level metrics would carry exemplars
+	// pointing at the chunks span instead of the program_upload span,
+	// breaking trace<->metric correlation in Tempo/Grafana.
 	chunksCtx, chunksSpan := ctrlTracer.Start(ctx, "program.chunks")
+	defer chunksSpan.End()
 	totalLen := uint32(len(compressed))
 	chunkIdx := 0
-	ctx = chunksCtx
-	defer chunksSpan.End()
 	for offset := 0; offset < len(compressed); offset += protocol.ProgramChunkSize {
 		end := offset + protocol.ProgramChunkSize
 		if end > len(compressed) {
@@ -911,14 +917,14 @@ func (c *Controller) sendProgram(ctx context.Context, programPayload []byte) (er
 			"totalCompressed", len(compressed),
 		)
 
-		if err := c.transport.SendCommand(ctx, chunkCmd); err != nil {
+		if err := c.transport.SendCommand(chunksCtx, chunkCmd); err != nil {
 			c.setProgramError()
 			return fmt.Errorf("sending program chunk %d: %w", chunkIdx, err)
 		}
 
 		// Wait for the device to process the chunk. The device sends a
 		// notification ACK, but timing is tight. Use a generous wait.
-		resp, err := c.transport.WaitForResponse(ctx, 5*time.Second)
+		resp, err := c.transport.WaitForResponse(chunksCtx, 5*time.Second)
 		if err != nil {
 			c.logger.Warn("no ACK for chunk, continuing", "chunk", chunkIdx, "error", err)
 		} else {

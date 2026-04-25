@@ -2,11 +2,23 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/spf13/viper"
 )
+
+// otelEndpointEnvVars enumerates the OTLP endpoint env vars the SDK reads
+// natively when no WithEndpoint(...) option is passed. Used by Validate()
+// to satisfy the "endpoint is set" requirement without forcing it through
+// our own config keys.
+var otelEndpointEnvVars = []string{
+	"OTEL_EXPORTER_OTLP_ENDPOINT",
+	"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+	"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+	"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+}
 
 // Config holds the complete application configuration.
 type Config struct {
@@ -202,16 +214,44 @@ func (o *OTelConfig) ResolveProtocol(signal OTelSignalConfig) string {
 	return o.Protocol
 }
 
+// endpointConfigured reports whether any of the OTel endpoint sources
+// is set: YAML/Viper-derived top-level or per-signal endpoint, or one of
+// the standard OTLP env vars the SDK reads natively.
+func (o *OTelConfig) endpointConfigured() bool {
+	if o.Endpoint != "" || o.Traces.Endpoint != "" || o.Metrics.Endpoint != "" || o.Logs.Endpoint != "" {
+		return true
+	}
+	for _, name := range otelEndpointEnvVars {
+		if os.Getenv(name) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // Validate checks invariants that would make OTel init fail late: an
 // enabled provider with no endpoint is the biggest footgun, so surface
 // it at config-load time instead of after the first span attempts a
 // connect.
+//
+// Endpoint resolution honors the standard OTel SDK fallback: if no
+// endpoint is set in YAML/COOLLEDUX env vars, the SDK reads
+// OTEL_EXPORTER_OTLP_ENDPOINT (and per-signal variants) at exporter
+// construction time. Validate accepts presence of any of those env vars
+// as satisfying the "endpoint is configured" requirement.
+//
+// Precedence: YAML > COOLLEDUX_OTEL_* > OTEL_EXPORTER_OTLP_* > SDK
+// defaults (no endpoint, exporter ultimately fails to dial).
 func (o *OTelConfig) Validate() error {
 	if !o.Enabled {
 		return nil
 	}
-	if o.Endpoint == "" && o.Traces.Endpoint == "" && o.Metrics.Endpoint == "" && o.Logs.Endpoint == "" {
-		return fmt.Errorf("otel.enabled is true but no otel.endpoint (or per-signal endpoint) is set; see docs/operations/observability.md")
+	if !o.endpointConfigured() {
+		return fmt.Errorf("otel.enabled is true but no endpoint is configured: " +
+			"set otel.endpoint (or a per-signal endpoint) in YAML, " +
+			"or export OTEL_EXPORTER_OTLP_ENDPOINT (or per-signal " +
+			"OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_ENDPOINT). " +
+			"See docs/operations/observability.md")
 	}
 	switch o.Protocol {
 	case "", "grpc", "http":

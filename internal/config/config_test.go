@@ -382,10 +382,41 @@ func TestOTelConfig_Validate_DisabledNoop(t *testing.T) {
 }
 
 func TestOTelConfig_Validate_MissingEndpoint(t *testing.T) {
+	// Clear any inherited OTEL_* endpoint env so we test the no-source case.
+	for _, name := range otelEndpointEnvVars {
+		t.Setenv(name, "")
+	}
 	c := OTelConfig{Enabled: true, Protocol: "grpc"}
 	err := c.Validate()
 	if err == nil {
 		t.Fatal("expected error for enabled without endpoint")
+	}
+}
+
+func TestOTelConfig_Validate_OTELEnvVarSatisfies(t *testing.T) {
+	// Clear and then set just one of the SDK-native env vars; Validate
+	// should accept it as a sufficient endpoint source even though the
+	// YAML/COOLLEDUX paths leave it blank.
+	for _, name := range otelEndpointEnvVars {
+		t.Setenv(name, "")
+	}
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector.example:4318")
+
+	c := OTelConfig{Enabled: true, Protocol: "http"}
+	if err := c.Validate(); err != nil {
+		t.Errorf("OTEL_EXPORTER_OTLP_ENDPOINT should satisfy validation: %v", err)
+	}
+}
+
+func TestOTelConfig_Validate_PerSignalEnvVarSatisfies(t *testing.T) {
+	for _, name := range otelEndpointEnvVars {
+		t.Setenv(name, "")
+	}
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "tempo.example:4317")
+
+	c := OTelConfig{Enabled: true, Protocol: "grpc"}
+	if err := c.Validate(); err != nil {
+		t.Errorf("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT should satisfy validation: %v", err)
 	}
 }
 

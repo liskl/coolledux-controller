@@ -139,3 +139,13 @@ curl -s localhost:8080/health
 4. SDK built-in defaults
 
 So a production deployment can override any setting without a config-file change by setting, e.g., `COOLLEDUX_OTEL_ENDPOINT=otel.internal:4317`.
+
+### Endpoint validation and the `OTEL_*` fallback
+
+`config.Load` validates that an enabled OTel block has *some* endpoint source. The check accepts any of:
+
+- `otel.endpoint` (top-level) or `otel.{traces,metrics,logs}.endpoint` (per-signal) in YAML
+- The corresponding `COOLLEDUX_OTEL_*` env vars
+- One of the SDK-native env vars: `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`
+
+This is what lets a containerized deployment configure OTel purely through the standard env vars without touching `config.yaml` or `COOLLEDUX_*`. If you enable OTel without setting any of those, `config.Load` fails with a pointer to this section instead of letting the exporter fail later.

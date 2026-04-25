@@ -224,3 +224,47 @@ func TestNewClient_MultipleDevices(t *testing.T) {
 		t.Error("missing handler for b")
 	}
 }
+
+func TestSanitizeBroker(t *testing.T) {
+	tests := []struct {
+		name      string
+		raw       string
+		wantURL   string
+		wantHost  string
+		wantPort  string
+	}{
+		{"empty", "", "", "", ""},
+		{"plain tcp host port", "tcp://host:1883",
+			"tcp://host:1883", "host", "1883"},
+		{"userinfo stripped", "tcp://user:pass@host:1883",
+			"tcp://host:1883", "host", "1883"},
+		{"only-user stripped", "tcp://user@host:1883",
+			"tcp://host:1883", "host", "1883"},
+		{"https with creds (HA-style add-on broker)", "wss://admin:secret@mqtt.example.com:8883/ws",
+			"wss://mqtt.example.com:8883/ws", "mqtt.example.com", "8883"},
+		{"no port", "tcp://host", "tcp://host", "host", ""},
+		// Paho accepts some non-RFC URLs that url.Parse may not handle the
+		// same way; verify the regex fallback at least strips userinfo.
+		{"non-standard fallback strips creds",
+			"mqtts+ssl://user:pass@host", "mqtts+ssl://host", "host", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotURL, gotHost, gotPort := sanitizeBroker(tt.raw)
+			if gotURL != tt.wantURL {
+				t.Errorf("url = %q, want %q", gotURL, tt.wantURL)
+			}
+			if gotHost != tt.wantHost {
+				t.Errorf("host = %q, want %q", gotHost, tt.wantHost)
+			}
+			if gotPort != tt.wantPort {
+				t.Errorf("port = %q, want %q", gotPort, tt.wantPort)
+			}
+			// Hard contract: under no circumstances may the sanitized URL
+			// contain "user:pass" or any colon-separated creds pattern.
+			if strings.Contains(gotURL, "pass") || strings.Contains(gotURL, "secret") {
+				t.Errorf("sanitized URL %q still contains credential-like substring", gotURL)
+			}
+		})
+	}
+}

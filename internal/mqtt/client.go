@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"regexp"
 	"sync"
 	"time"
 
@@ -17,6 +19,34 @@ import (
 	"github.com/liskl/coolledux-controller/internal/config"
 	"github.com/liskl/coolledux-controller/internal/registry"
 )
+
+// brokerUserinfoRE strips userinfo (`user:pass@`) from broker URL
+// strings that don't parse cleanly as standard URLs. Paho accepts a
+// few non-RFC-3986 forms, so this is a fallback when url.Parse fails.
+var brokerUserinfoRE = regexp.MustCompile(`(^[a-zA-Z][a-zA-Z0-9+.-]*://)[^/@]*@`)
+
+// sanitizeBroker returns a credential-free representation of the
+// broker URL plus its scheme/host/port broken out for OTel semconv
+// attributes. Userinfo is dropped; everything else is preserved.
+//
+// MQTT broker URLs reach us as user-configurable strings from
+// config.MQTTConfig.Broker. Paho accepts forms like
+// "tcp://user:pass@host:1883", and previously we attached that string
+// verbatim to span attributes and slog records — exfiltrating
+// credentials to Tempo/Loki and any other OTel destination.
+//
+// Returns ("", "", "") for everything when the input is empty.
+func sanitizeBroker(raw string) (sanitizedURL, host, port string) {
+	if raw == "" {
+		return "", "", ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return brokerUserinfoRE.ReplaceAllString(raw, "$1"), "", ""
+	}
+	u.User = nil
+	return u.String(), u.Hostname(), u.Port()
+}
 
 // Telemetry globals. No-op when OTel is disabled.
 var (
@@ -68,9 +98,16 @@ func NewClient(cfg *config.MQTTConfig, reg *registry.Registry, logger *slog.Logg
 // Connect establishes the MQTT connection with LWT, auto-reconnect, and
 // discovery publishing on (re)connect.
 func (c *Client) Connect(ctx context.Context) (err error) {
-	ctx, span := mqttTracer.Start(ctx, "mqtt.connect",
-		trace.WithAttributes(attribute.String("mqtt.broker", c.cfg.Broker)),
-	)
+	sanitized, host, port := sanitizeBroker(c.cfg.Broker)
+	spanAttrs := []attribute.KeyValue{
+		attribute.String("messaging.system", "mqtt"),
+		attribute.String("server.address", host),
+		attribute.String("mqtt.broker", sanitized),
+	}
+	if port != "" {
+		spanAttrs = append(spanAttrs, attribute.String("server.port", port))
+	}
+	ctx, span := mqttTracer.Start(ctx, "mqtt.connect", trace.WithAttributes(spanAttrs...))
 	defer func() {
 		if err != nil {
 			span.RecordError(err)
@@ -90,7 +127,7 @@ func (c *Client) Connect(ctx context.Context) (err error) {
 		// the paho client only supports one LWT per connection.
 		SetWill(c.serviceAvailabilityTopic(), "offline", 1, true).
 		SetOnConnectHandler(func(_ pahomqtt.Client) {
-			c.logger.Info("mqtt connected", "broker", c.cfg.Broker)
+			c.logger.Info("mqtt connected", "broker", sanitized)
 			c.mu.Lock()
 			c.connected = true
 			c.mu.Unlock()

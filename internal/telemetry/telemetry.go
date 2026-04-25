@@ -233,7 +233,13 @@ func (p *Provider) SlogHandler() slog.Handler {
 	if !p.enabled {
 		return p.stdoutHandler
 	}
-	otelHandler := otelslog.NewHandler("coolledux-controller",
+	// The first arg to otelslog.NewHandler is the OTel instrumentation
+	// scope name, identifying the producing code library — same role as
+	// the strings passed to otel.Tracer(...) / otel.Meter(...) elsewhere
+	// in this package. Using the Go import path matches that convention
+	// and keeps Loki/Tempo "scope" filters aligned with code origin.
+	// service.name (separate concept) flows through buildResource().
+	otelHandler := otelslog.NewHandler("github.com/liskl/coolledux-controller",
 		otelslog.WithLoggerProvider(p.loggerProvider),
 	)
 	return &multiHandler{handlers: []slog.Handler{p.stdoutHandler, otelHandler}}

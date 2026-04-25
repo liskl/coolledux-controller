@@ -42,24 +42,42 @@ func protocolFor(top string, signal config.OTelSignalConfig) (string, error) {
 }
 
 // endpointFor strips an optional scheme prefix from the endpoint (OTLP
-// exporters want host:port) and returns the host plus a flag indicating
-// whether the scheme implies TLS. Empty endpoints return the zero value
-// so the caller can treat "use SDK default" as a distinct case.
-func endpointFor(top string, signal config.OTelSignalConfig) (endpoint string, schemeTLS bool) {
+// exporters want host:port) and returns the host plus the scheme it
+// found ("", "http", or "https"). The previous bool return was an
+// antipattern: with three states encoded as a bool, callers couldn't
+// distinguish "no scheme" from "explicit http", which led to TLS being
+// attempted against http:// endpoints.
+func endpointFor(top string, signal config.OTelSignalConfig) (host, scheme string) {
 	raw := signal.Endpoint
 	if raw == "" {
 		raw = top
 	}
 	if raw == "" {
-		return "", false
+		return "", ""
 	}
 	switch {
 	case strings.HasPrefix(raw, "https://"):
-		return strings.TrimPrefix(raw, "https://"), true
+		return strings.TrimPrefix(raw, "https://"), "https"
 	case strings.HasPrefix(raw, "http://"):
-		return strings.TrimPrefix(raw, "http://"), false
+		return strings.TrimPrefix(raw, "http://"), "http"
 	default:
-		return raw, false
+		return raw, ""
+	}
+}
+
+// shouldUseInsecure consolidates the TLS-vs-plaintext decision for a
+// given exporter call. An explicit "http://" scheme overrides the
+// config flag (a user who wrote "http://" surely doesn't want TLS),
+// "https://" forces TLS regardless of the flag, and a scheme-less
+// endpoint defers to cfg.Insecure.
+func shouldUseInsecure(cfg *config.OTelConfig, scheme string) bool {
+	switch scheme {
+	case "http":
+		return true
+	case "https":
+		return false
+	default:
+		return cfg.Insecure
 	}
 }
 
@@ -75,16 +93,18 @@ func newTraceExporter(ctx context.Context, cfg *config.OTelConfig) (*otlptrace.E
 	if err != nil {
 		return nil, err
 	}
-	endpoint, schemeTLS := endpointFor(cfg.Endpoint, cfg.Traces)
+	endpoint, scheme := endpointFor(cfg.Endpoint, cfg.Traces)
+	insecure := shouldUseInsecure(cfg, scheme)
+	timeout := effectiveTimeout(cfg)
 
 	var client otlptrace.Client
 	switch proto {
 	case "grpc":
-		opts := []otlptracegrpc.Option{otlptracegrpc.WithTimeout(effectiveTimeout(cfg))}
+		opts := []otlptracegrpc.Option{otlptracegrpc.WithTimeout(timeout)}
 		if endpoint != "" {
 			opts = append(opts, otlptracegrpc.WithEndpoint(endpoint))
 		}
-		if cfg.Insecure && !schemeTLS {
+		if insecure {
 			opts = append(opts, otlptracegrpc.WithInsecure())
 		}
 		if len(cfg.Headers) > 0 {
@@ -92,11 +112,11 @@ func newTraceExporter(ctx context.Context, cfg *config.OTelConfig) (*otlptrace.E
 		}
 		client = otlptracegrpc.NewClient(opts...)
 	case "http":
-		opts := []otlptracehttp.Option{otlptracehttp.WithTimeout(effectiveTimeout(cfg))}
+		opts := []otlptracehttp.Option{otlptracehttp.WithTimeout(timeout)}
 		if endpoint != "" {
 			opts = append(opts, otlptracehttp.WithEndpoint(endpoint))
 		}
-		if cfg.Insecure && !schemeTLS {
+		if insecure {
 			opts = append(opts, otlptracehttp.WithInsecure())
 		}
 		if len(cfg.Headers) > 0 {
@@ -114,15 +134,17 @@ func newMetricExporter(ctx context.Context, cfg *config.OTelConfig) (sdkmetric.E
 	if err != nil {
 		return nil, err
 	}
-	endpoint, schemeTLS := endpointFor(cfg.Endpoint, cfg.Metrics.OTelSignalConfig)
+	endpoint, scheme := endpointFor(cfg.Endpoint, cfg.Metrics.OTelSignalConfig)
+	insecure := shouldUseInsecure(cfg, scheme)
+	timeout := effectiveTimeout(cfg)
 
 	switch proto {
 	case "grpc":
-		opts := []otlpmetricgrpc.Option{otlpmetricgrpc.WithTimeout(effectiveTimeout(cfg))}
+		opts := []otlpmetricgrpc.Option{otlpmetricgrpc.WithTimeout(timeout)}
 		if endpoint != "" {
 			opts = append(opts, otlpmetricgrpc.WithEndpoint(endpoint))
 		}
-		if cfg.Insecure && !schemeTLS {
+		if insecure {
 			opts = append(opts, otlpmetricgrpc.WithInsecure())
 		}
 		if len(cfg.Headers) > 0 {
@@ -130,11 +152,11 @@ func newMetricExporter(ctx context.Context, cfg *config.OTelConfig) (sdkmetric.E
 		}
 		return otlpmetricgrpc.New(ctx, opts...)
 	case "http":
-		opts := []otlpmetrichttp.Option{otlpmetrichttp.WithTimeout(effectiveTimeout(cfg))}
+		opts := []otlpmetrichttp.Option{otlpmetrichttp.WithTimeout(timeout)}
 		if endpoint != "" {
 			opts = append(opts, otlpmetrichttp.WithEndpoint(endpoint))
 		}
-		if cfg.Insecure && !schemeTLS {
+		if insecure {
 			opts = append(opts, otlpmetrichttp.WithInsecure())
 		}
 		if len(cfg.Headers) > 0 {
@@ -150,15 +172,17 @@ func newLogExporter(ctx context.Context, cfg *config.OTelConfig) (sdklog.Exporte
 	if err != nil {
 		return nil, err
 	}
-	endpoint, schemeTLS := endpointFor(cfg.Endpoint, cfg.Logs)
+	endpoint, scheme := endpointFor(cfg.Endpoint, cfg.Logs)
+	insecure := shouldUseInsecure(cfg, scheme)
+	timeout := effectiveTimeout(cfg)
 
 	switch proto {
 	case "grpc":
-		opts := []otlploggrpc.Option{otlploggrpc.WithTimeout(effectiveTimeout(cfg))}
+		opts := []otlploggrpc.Option{otlploggrpc.WithTimeout(timeout)}
 		if endpoint != "" {
 			opts = append(opts, otlploggrpc.WithEndpoint(endpoint))
 		}
-		if cfg.Insecure && !schemeTLS {
+		if insecure {
 			opts = append(opts, otlploggrpc.WithInsecure())
 		}
 		if len(cfg.Headers) > 0 {
@@ -166,11 +190,11 @@ func newLogExporter(ctx context.Context, cfg *config.OTelConfig) (sdklog.Exporte
 		}
 		return otlploggrpc.New(ctx, opts...)
 	case "http":
-		opts := []otlploghttp.Option{otlploghttp.WithTimeout(effectiveTimeout(cfg))}
+		opts := []otlploghttp.Option{otlploghttp.WithTimeout(timeout)}
 		if endpoint != "" {
 			opts = append(opts, otlploghttp.WithEndpoint(endpoint))
 		}
-		if cfg.Insecure && !schemeTLS {
+		if insecure {
 			opts = append(opts, otlploghttp.WithInsecure())
 		}
 		if len(cfg.Headers) > 0 {
@@ -181,7 +205,9 @@ func newLogExporter(ctx context.Context, cfg *config.OTelConfig) (sdklog.Exporte
 	return nil, fmt.Errorf("unreachable: protocol %q", proto)
 }
 
-// When neither `cfg.Insecure` nor an explicit `http://` scheme is set,
-// the OTLP exporters default to TLS using the system cert pool. Custom
-// cert pools / client certs aren't a current user requirement, so this
-// package intentionally doesn't expose a TLS knob.
+// TLS contract: scheme on the endpoint URL takes precedence over
+// cfg.Insecure. "http://" forces plaintext, "https://" forces TLS,
+// and a bare host:port falls back to cfg.Insecure (which the example
+// config ships as true for the typical cluster-internal collector).
+// When TLS is in effect the OTLP exporters use the system cert pool;
+// custom cert pools / client certs aren't a current user requirement.

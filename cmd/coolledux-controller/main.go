@@ -7,12 +7,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/liskl/coolledux-controller/internal/api"
 	"github.com/liskl/coolledux-controller/internal/ble"
 	"github.com/liskl/coolledux-controller/internal/config"
 	"github.com/liskl/coolledux-controller/internal/mqtt"
 	"github.com/liskl/coolledux-controller/internal/registry"
+	"github.com/liskl/coolledux-controller/internal/telemetry"
 )
 
 func main() {
@@ -30,10 +32,32 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger := setupLogger(cfg.Log)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Build telemetry first so the logger can fan out through its slog
+	// handler. When otel.enabled=false, New returns a no-op provider and
+	// SlogHandler falls back to just the stdout handler — zero overhead.
+	stdoutHandler := newStdoutHandler(cfg.Log)
+	tel, err := telemetry.New(ctx, &cfg.OTel, telemetry.BuildInfo{
+		ServiceName: cfg.OTel.ServiceName,
+	}, stdoutHandler)
+	if err != nil {
+		slog.Error("failed to initialize telemetry", "error", err)
+		os.Exit(1)
+	}
+	logger := slog.New(tel.SlogHandler())
+	if tel.Enabled() {
+		endpoint, endpointSource := cfg.OTel.ResolvedEndpoint()
+		logger.Info("opentelemetry enabled",
+			"endpoint", endpoint,
+			"endpoint_source", endpointSource,
+			"protocol", cfg.OTel.Protocol,
+			"traces", cfg.OTel.Traces.Enabled,
+			"metrics", cfg.OTel.Metrics.Enabled,
+			"logs", cfg.OTel.Logs.Enabled,
+		)
+	}
 
 	// Build the device registry from config, and optionally augment it
 	// with a startup BLE scan so users who haven't pinned MACs still
@@ -114,7 +138,7 @@ func main() {
 	// routes under /device/:id/... backed by the registry.
 	var apiServer *api.Server
 	if primary != nil {
-		apiServer = api.NewServer(primary.Controller, cfg, logger, reg)
+		apiServer = api.NewServer(primary.Controller, cfg, logger, reg, tel)
 		go func() {
 			if err := apiServer.Start(); err != nil {
 				logger.Error("API server error", "error", err)
@@ -152,10 +176,22 @@ func main() {
 		}
 	}
 
+	// Flush telemetry last so trailing spans/metrics/logs from the
+	// shutdown path make it out. Give it its own deadline so a stuck
+	// collector can't hang the process.
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelShutdown()
+	if err := tel.Shutdown(shutdownCtx); err != nil {
+		logger.Error("telemetry shutdown error", "error", err)
+	}
+
 	logger.Info("shutdown complete")
 }
 
-func setupLogger(cfg config.LogConfig) *slog.Logger {
+// newStdoutHandler builds the plain stdout slog handler that existed
+// before OTel. The telemetry provider fans records to this handler plus
+// the OTel log bridge when enabled.
+func newStdoutHandler(cfg config.LogConfig) slog.Handler {
 	var level slog.Level
 	switch cfg.Level {
 	case "debug":
@@ -170,12 +206,8 @@ func setupLogger(cfg config.LogConfig) *slog.Logger {
 
 	opts := &slog.HandlerOptions{Level: level}
 
-	var handler slog.Handler
 	if cfg.Format == "text" {
-		handler = slog.NewTextHandler(os.Stdout, opts)
-	} else {
-		handler = slog.NewJSONHandler(os.Stdout, opts)
+		return slog.NewTextHandler(os.Stdout, opts)
 	}
-
-	return slog.New(handler)
+	return slog.NewJSONHandler(os.Stdout, opts)
 }

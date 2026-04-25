@@ -1,0 +1,374 @@
+// Package telemetry wires the OpenTelemetry trace, metric, and log
+// providers into the coolledux-controller service. When disabled (the
+// default), every accessor returns an OTel no-op provider so call sites
+// can unconditionally write `tel.Tracer("ble").Start(...)` without
+// worrying about nil checks or feature flags.
+//
+// Enable by setting `otel.enabled: true` in config.yaml and pointing
+// `otel.endpoint` at an OTLP-receiving collector. See
+// docs/operations/observability.md for the full config reference and the
+// homelab cheatsheet.
+package telemetry
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"runtime/debug"
+	"sync"
+	"time"
+
+	"go.opentelemetry.io/contrib/bridges/otelslog"
+	otelruntime "go.opentelemetry.io/contrib/instrumentation/runtime"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/log"
+	lognoop "go.opentelemetry.io/otel/log/noop"
+	"go.opentelemetry.io/otel/metric"
+	metricnoop "go.opentelemetry.io/otel/metric/noop"
+	"go.opentelemetry.io/otel/propagation"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
+	"go.opentelemetry.io/otel/trace"
+	tracenoop "go.opentelemetry.io/otel/trace/noop"
+
+	"github.com/liskl/coolledux-controller/internal/config"
+)
+
+// Provider owns the OTel SDK providers and their shutdown handles. Pass
+// it to subsystems that need to emit telemetry; don't import the OTel
+// SDK directly from other packages.
+type Provider struct {
+	tracerProvider trace.TracerProvider
+	meterProvider  metric.MeterProvider
+	loggerProvider log.LoggerProvider
+
+	// shutdownFns runs every registered Shutdown in reverse order on
+	// Provider.Shutdown. Each fn should be idempotent; the SDK exporter
+	// Shutdown methods already are.
+	shutdownFns []func(context.Context) error
+
+	// enabled tracks whether the provider was built from a live
+	// configuration or is the no-op fallback, so callers can branch on
+	// e.g. "should I register a slog bridge?".
+	enabled bool
+
+	// logsEnabled is true only when cfg.Enabled && cfg.Logs.Enabled and
+	// New() therefore wired a real LoggerProvider. SlogHandler() uses
+	// it to short-circuit the slog.Record→otel.Record translation and
+	// multi-handler fanout when logs are off — without this, the
+	// per-signal disable flag still incurs per-record overhead because
+	// otelslog.NewHandler over a noop LoggerProvider still does the
+	// per-record work before discarding.
+	logsEnabled bool
+
+	// tracesEnabled / metricsEnabled mirror logsEnabled for the other
+	// two signals. Same rationale: the noop providers short-circuit
+	// most work, but library wrappers (otelfiber, etc.) still do
+	// per-request span/option construction even against noops. Callers
+	// that own middleware registration consult these flags so they
+	// can skip the wrapper entirely when its signal is off.
+	tracesEnabled  bool
+	metricsEnabled bool
+
+	// stdoutHandler is the existing JSON/text handler main already owns;
+	// it flows through as the first destination of SlogHandler() when
+	// OTel is enabled. Copied here so callers don't have to thread it
+	// through every telemetry call.
+	stdoutHandler slog.Handler
+
+	shutdownOnce sync.Once
+}
+
+// BuildInfo carries optional service metadata that ends up as OTel
+// resource attributes. Populate from `debug.ReadBuildInfo()` in main
+// when available; empty fields are dropped.
+type BuildInfo struct {
+	ServiceName    string // overridden by cfg.ServiceName when set
+	ServiceVersion string // falls back to runtime build info
+	Environment    string // e.g. "homelab", "dev", "production"
+}
+
+// New builds a Provider from the given config. When cfg.Enabled is
+// false, returns a no-op Provider immediately (no network, no
+// goroutines). stdoutHandler is the existing slog handler to keep
+// writing to stdout; it's combined with the OTel log bridge in
+// SlogHandler(). A nil stdoutHandler is normalized to a discard handler
+// so SlogHandler() can never produce a nil-bearing multiHandler that
+// would panic on the first record.
+func New(ctx context.Context, cfg *config.OTelConfig, info BuildInfo, stdoutHandler slog.Handler) (*Provider, error) {
+	stdoutHandler = ensureSlogHandler(stdoutHandler)
+	if cfg == nil || !cfg.Enabled {
+		return newNoop(stdoutHandler), nil
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
+	res, err := buildResource(cfg, info)
+	if err != nil {
+		return nil, fmt.Errorf("building resource: %w", err)
+	}
+
+	p := &Provider{
+		enabled:       true,
+		stdoutHandler: stdoutHandler,
+	}
+
+	// Traces
+	if cfg.Traces.Enabled {
+		exporter, err := newTraceExporter(ctx, cfg)
+		if err != nil {
+			cleanupShutdown(p)
+			return nil, fmt.Errorf("trace exporter: %w", err)
+		}
+		tp := sdktrace.NewTracerProvider(
+			sdktrace.WithBatcher(exporter),
+			sdktrace.WithResource(res),
+		)
+		p.tracerProvider = tp
+		p.tracesEnabled = true
+		p.shutdownFns = append(p.shutdownFns, tp.Shutdown)
+	} else {
+		p.tracerProvider = tracenoop.NewTracerProvider()
+	}
+
+	// Metrics
+	if cfg.Metrics.Enabled {
+		exporter, err := newMetricExporter(ctx, cfg)
+		if err != nil {
+			cleanupShutdown(p)
+			return nil, fmt.Errorf("metric exporter: %w", err)
+		}
+		interval := cfg.Metrics.Interval
+		if interval <= 0 {
+			interval = 60 * time.Second
+		}
+		reader := sdkmetric.NewPeriodicReader(exporter,
+			sdkmetric.WithInterval(interval),
+		)
+		mp := sdkmetric.NewMeterProvider(
+			sdkmetric.WithReader(reader),
+			sdkmetric.WithResource(res),
+		)
+		p.meterProvider = mp
+		p.metricsEnabled = true
+		p.shutdownFns = append(p.shutdownFns, mp.Shutdown)
+
+		// Go runtime metrics (heap, goroutines, GC).
+		if cfg.Metrics.Runtime {
+			if err := otelruntime.Start(otelruntime.WithMeterProvider(mp)); err != nil {
+				// Non-fatal: runtime metrics failing shouldn't crash the
+				// service, but it should be loud in logs. The slog
+				// handler isn't wired yet, so surface via the default.
+				slog.Default().Warn("otel runtime metrics failed to start", "error", err)
+			}
+		}
+	} else {
+		p.meterProvider = metricnoop.NewMeterProvider()
+	}
+
+	// Logs
+	if cfg.Logs.Enabled {
+		exporter, err := newLogExporter(ctx, cfg)
+		if err != nil {
+			cleanupShutdown(p)
+			return nil, fmt.Errorf("log exporter: %w", err)
+		}
+		processor := sdklog.NewBatchProcessor(exporter)
+		lp := sdklog.NewLoggerProvider(
+			sdklog.WithProcessor(processor),
+			sdklog.WithResource(res),
+		)
+		p.loggerProvider = lp
+		p.logsEnabled = true
+		p.shutdownFns = append(p.shutdownFns, lp.Shutdown)
+	} else {
+		p.loggerProvider = lognoop.NewLoggerProvider()
+	}
+
+	// Install global providers so libraries we don't control (paho,
+	// fiber middleware when called without explicit options, etc.) pick
+	// them up automatically.
+	otel.SetTracerProvider(p.tracerProvider)
+	otel.SetMeterProvider(p.meterProvider)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+
+	return p, nil
+}
+
+// newNoop constructs a Provider whose accessors return OTel no-op
+// implementations. stdoutHandler is preserved so SlogHandler() still
+// returns the existing slog destination even when telemetry is off.
+// A nil handler is normalized to a discard handler — SlogHandler()'s
+// callers run slog.New(p.SlogHandler()), which would panic on a nil
+// destination, so the package guarantees non-nil here.
+func newNoop(stdoutHandler slog.Handler) *Provider {
+	return &Provider{
+		tracerProvider: tracenoop.NewTracerProvider(),
+		meterProvider:  metricnoop.NewMeterProvider(),
+		loggerProvider: lognoop.NewLoggerProvider(),
+		stdoutHandler:  ensureSlogHandler(stdoutHandler),
+	}
+}
+
+// ensureSlogHandler returns h, or a discard JSON handler when h is nil.
+// Centralizing the default here keeps both New() and newNoop() honest
+// without duplicating the import-of-discard boilerplate.
+func ensureSlogHandler(h slog.Handler) slog.Handler {
+	if h != nil {
+		return h
+	}
+	return slog.NewJSONHandler(io.Discard, nil)
+}
+
+// Enabled reports whether the provider was built from a live OTel
+// configuration. Useful for "log that telemetry is active" one-shots.
+func (p *Provider) Enabled() bool {
+	return p.enabled
+}
+
+// TracesEnabled reports whether a real (non-noop) TracerProvider was
+// wired. Callers that register tracing middleware (otelfiber,
+// otelhttp, etc.) should gate registration on this so the per-request
+// wrapper isn't installed when traces are off.
+func (p *Provider) TracesEnabled() bool {
+	return p.tracesEnabled
+}
+
+// MetricsEnabled reports whether a real (non-noop) MeterProvider was
+// wired. Mirrors TracesEnabled for HTTP/RPC libraries that record
+// histograms — skip the wrapper when metrics are off.
+func (p *Provider) MetricsEnabled() bool {
+	return p.metricsEnabled
+}
+
+// TracerProvider returns the underlying OTel TracerProvider.
+func (p *Provider) TracerProvider() trace.TracerProvider {
+	return p.tracerProvider
+}
+
+// MeterProvider returns the underlying OTel MeterProvider.
+func (p *Provider) MeterProvider() metric.MeterProvider {
+	return p.meterProvider
+}
+
+// LoggerProvider returns the underlying OTel LoggerProvider.
+func (p *Provider) LoggerProvider() log.LoggerProvider {
+	return p.loggerProvider
+}
+
+// Tracer returns a named tracer. Use package paths as names
+// (`internal/ble`, `internal/mqtt`, etc.) so traces are grouped
+// sensibly in Tempo/Grafana.
+func (p *Provider) Tracer(name string) trace.Tracer {
+	return p.tracerProvider.Tracer(name)
+}
+
+// Meter returns a named meter for metric instruments.
+func (p *Provider) Meter(name string) metric.Meter {
+	return p.meterProvider.Meter(name)
+}
+
+// SlogHandler returns a slog.Handler that writes to the stdout handler
+// and, when OTel logs are enabled, also mirrors every record into the
+// OTel log bridge so it lands in Loki via the collector. Safe to call
+// on disabled providers — returns just the stdout handler in that
+// case. The check is on logsEnabled (not just enabled) because a
+// disabled-but-not-overall-disabled config (cfg.Enabled=true,
+// cfg.Logs.Enabled=false) should also bypass the bridge entirely; the
+// noop LoggerProvider would otherwise still pay the per-record
+// otelslog translation cost before discarding.
+func (p *Provider) SlogHandler() slog.Handler {
+	if !p.logsEnabled {
+		return p.stdoutHandler
+	}
+	// The first arg to otelslog.NewHandler is the OTel instrumentation
+	// scope name, identifying the producing code library — same role as
+	// the strings passed to otel.Tracer(...) / otel.Meter(...) elsewhere
+	// in this package. Using the Go import path matches that convention
+	// and keeps Loki/Tempo "scope" filters aligned with code origin.
+	// service.name (separate concept) flows through buildResource().
+	otelHandler := otelslog.NewHandler("github.com/liskl/coolledux-controller",
+		otelslog.WithLoggerProvider(p.loggerProvider),
+	)
+	return &multiHandler{handlers: []slog.Handler{p.stdoutHandler, otelHandler}}
+}
+
+// cleanupShutdown is the constructor's failure-cleanup path. Uses a
+// fresh bounded context rather than reusing the caller's ctx because by
+// the time we land here the caller may have cancelled (request timeout,
+// shutdown signal, etc.), and a cancelled ctx would skip cleanup
+// entirely. Standalone WithTimeout guarantees a best-effort flush of
+// whatever providers we did manage to construct, without hanging
+// New() forever on a stuck exporter.
+func cleanupShutdown(p *Provider) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = p.Shutdown(ctx)
+}
+
+// Shutdown flushes and closes every registered provider. Safe to call
+// multiple times; the second call is a no-op.
+func (p *Provider) Shutdown(ctx context.Context) error {
+	if p == nil {
+		return nil
+	}
+	var err error
+	p.shutdownOnce.Do(func() {
+		var errs []error
+		// Reverse order so logs flush after anything that might still
+		// be writing to them.
+		for i := len(p.shutdownFns) - 1; i >= 0; i-- {
+			if fnErr := p.shutdownFns[i](ctx); fnErr != nil {
+				errs = append(errs, fnErr)
+			}
+		}
+		err = errors.Join(errs...)
+	})
+	return err
+}
+
+// buildResource composes the OTel resource (service.name, version,
+// environment, plus any user-supplied attrs).
+func buildResource(cfg *config.OTelConfig, info BuildInfo) (*resource.Resource, error) {
+	serviceName := cfg.ServiceName
+	if serviceName == "" {
+		serviceName = info.ServiceName
+	}
+	if serviceName == "" {
+		serviceName = "coolledux-controller"
+	}
+	serviceVersion := cfg.ServiceVersion
+	if serviceVersion == "" {
+		serviceVersion = info.ServiceVersion
+	}
+	if serviceVersion == "" {
+		if bi, ok := debug.ReadBuildInfo(); ok {
+			serviceVersion = bi.Main.Version
+		}
+	}
+
+	attrs := []attribute.KeyValue{
+		semconv.ServiceName(serviceName),
+	}
+	if serviceVersion != "" && serviceVersion != "(devel)" {
+		attrs = append(attrs, semconv.ServiceVersion(serviceVersion))
+	}
+	if info.Environment != "" {
+		attrs = append(attrs, semconv.DeploymentEnvironmentName(info.Environment))
+	}
+	for k, v := range cfg.ResourceAttrs {
+		attrs = append(attrs, attribute.String(k, v))
+	}
+
+	return resource.Merge(resource.Default(), resource.NewWithAttributes(semconv.SchemaURL, attrs...))
+}

@@ -335,3 +335,171 @@ func TestResolveDevices_ExcludesLegacyMAC(t *testing.T) {
 		t.Errorf("expected empty, got %+v", got)
 	}
 }
+
+// --- OTel config ---
+
+func TestLoad_OTelDefaults(t *testing.T) {
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.OTel.Enabled {
+		t.Error("OTel should default to disabled")
+	}
+	if cfg.OTel.ServiceName != "coolledux-controller" {
+		t.Errorf("ServiceName = %q, want coolledux-controller", cfg.OTel.ServiceName)
+	}
+	if cfg.OTel.Protocol != "grpc" {
+		t.Errorf("Protocol = %q, want grpc", cfg.OTel.Protocol)
+	}
+	if !cfg.OTel.Insecure {
+		t.Error("Insecure should default to true")
+	}
+	if cfg.OTel.Timeout != 10*time.Second {
+		t.Errorf("Timeout = %v, want 10s", cfg.OTel.Timeout)
+	}
+	if cfg.OTel.Endpoint != "" {
+		t.Errorf("Endpoint should have no default, got %q", cfg.OTel.Endpoint)
+	}
+	if !cfg.OTel.Traces.Enabled || !cfg.OTel.Metrics.Enabled || !cfg.OTel.Logs.Enabled {
+		t.Errorf("per-signal defaults should all be enabled, got traces=%v metrics=%v logs=%v",
+			cfg.OTel.Traces.Enabled, cfg.OTel.Metrics.Enabled, cfg.OTel.Logs.Enabled)
+	}
+	if cfg.OTel.Metrics.Interval != 60*time.Second {
+		t.Errorf("metrics interval = %v, want 60s", cfg.OTel.Metrics.Interval)
+	}
+	if !cfg.OTel.Metrics.Runtime {
+		t.Error("metrics.runtime should default to true")
+	}
+}
+
+func TestOTelConfig_Validate_DisabledNoop(t *testing.T) {
+	// Disabled config never errors regardless of missing endpoint.
+	c := OTelConfig{Enabled: false}
+	if err := c.Validate(); err != nil {
+		t.Errorf("disabled config should validate: %v", err)
+	}
+}
+
+func TestOTelConfig_Validate_MissingEndpoint(t *testing.T) {
+	// Clear any inherited OTEL_* endpoint env so we test the no-source case.
+	for _, name := range otelEndpointEnvVars {
+		t.Setenv(name, "")
+	}
+	c := OTelConfig{Enabled: true, Protocol: "grpc"}
+	err := c.Validate()
+	if err == nil {
+		t.Fatal("expected error for enabled without endpoint")
+	}
+}
+
+func TestOTelConfig_Validate_OTELEnvVarSatisfies(t *testing.T) {
+	// Clear and then set just one of the SDK-native env vars; Validate
+	// should accept it as a sufficient endpoint source even though the
+	// YAML/COOLLEDUX paths leave it blank.
+	for _, name := range otelEndpointEnvVars {
+		t.Setenv(name, "")
+	}
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector.example:4318")
+
+	c := OTelConfig{Enabled: true, Protocol: "http"}
+	if err := c.Validate(); err != nil {
+		t.Errorf("OTEL_EXPORTER_OTLP_ENDPOINT should satisfy validation: %v", err)
+	}
+}
+
+func TestOTelConfig_Validate_PerSignalEnvVarSatisfies(t *testing.T) {
+	for _, name := range otelEndpointEnvVars {
+		t.Setenv(name, "")
+	}
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "tempo.example:4317")
+
+	c := OTelConfig{Enabled: true, Protocol: "grpc"}
+	if err := c.Validate(); err != nil {
+		t.Errorf("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT should satisfy validation: %v", err)
+	}
+}
+
+func TestOTelConfig_Validate_PerSignalEndpointSatisfies(t *testing.T) {
+	c := OTelConfig{
+		Enabled: true,
+		Traces:  OTelSignalConfig{Endpoint: "tempo:4317"},
+	}
+	if err := c.Validate(); err != nil {
+		t.Errorf("should accept per-signal endpoint, got %v", err)
+	}
+}
+
+func TestOTelConfig_Validate_BadProtocol(t *testing.T) {
+	c := OTelConfig{Enabled: true, Endpoint: "h:4317", Protocol: "smoke-signals"}
+	if err := c.Validate(); err == nil {
+		t.Fatal("expected error for invalid protocol")
+	}
+}
+
+func TestOTelConfig_ResolveEndpoint_PerSignalOverride(t *testing.T) {
+	c := OTelConfig{Endpoint: "top:4317"}
+	signal := OTelSignalConfig{Endpoint: "override:4317"}
+	if got := c.ResolveEndpoint(signal); got != "override:4317" {
+		t.Errorf("ResolveEndpoint = %q, want override", got)
+	}
+}
+
+func TestOTelConfig_ResolveEndpoint_InheritsTop(t *testing.T) {
+	c := OTelConfig{Endpoint: "top:4317"}
+	if got := c.ResolveEndpoint(OTelSignalConfig{}); got != "top:4317" {
+		t.Errorf("ResolveEndpoint = %q, want top", got)
+	}
+}
+
+func TestOTelConfig_ResolvedEndpoint_PrecedenceOrder(t *testing.T) {
+	// Clear any inherited OTEL_* env so per-test scenarios are clean.
+	clearEnv := func(t *testing.T) {
+		t.Helper()
+		for _, name := range otelEndpointEnvVars {
+			t.Setenv(name, "")
+		}
+	}
+
+	t.Run("no source returns empty", func(t *testing.T) {
+		clearEnv(t)
+		ep, src := (&OTelConfig{}).ResolvedEndpoint()
+		if ep != "" || src != "" {
+			t.Errorf("got (%q, %q), want both empty", ep, src)
+		}
+	})
+
+	t.Run("top-level config beats env", func(t *testing.T) {
+		clearEnv(t)
+		t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "env:4317")
+		c := &OTelConfig{Endpoint: "yaml:4317"}
+		ep, src := c.ResolvedEndpoint()
+		if ep != "yaml:4317" {
+			t.Errorf("endpoint = %q, want yaml:4317 (config wins over env)", ep)
+		}
+		if src != "config (otel.endpoint)" {
+			t.Errorf("source = %q, want config", src)
+		}
+	})
+
+	t.Run("per-signal config used when top-level blank", func(t *testing.T) {
+		clearEnv(t)
+		c := &OTelConfig{Traces: OTelSignalConfig{Endpoint: "tempo:4317"}}
+		ep, src := c.ResolvedEndpoint()
+		if ep != "tempo:4317" || src != "config (otel.traces.endpoint)" {
+			t.Errorf("got (%q, %q), want (tempo:4317, config traces)", ep, src)
+		}
+	})
+
+	t.Run("env reported when no config source", func(t *testing.T) {
+		clearEnv(t)
+		t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "tempo-env:4317")
+		ep, src := (&OTelConfig{}).ResolvedEndpoint()
+		if ep != "tempo-env:4317" {
+			t.Errorf("endpoint = %q, want tempo-env:4317", ep)
+		}
+		if src != "env (OTEL_EXPORTER_OTLP_TRACES_ENDPOINT)" {
+			t.Errorf("source = %q, want env (per-signal var)", src)
+		}
+	})
+}

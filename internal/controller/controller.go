@@ -7,6 +7,13 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+	"unicode/utf8"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/liskl/coolledux-controller/internal/ble"
 	"github.com/liskl/coolledux-controller/internal/config"
@@ -15,6 +22,57 @@ import (
 	"github.com/liskl/coolledux-controller/internal/protocol"
 	"github.com/liskl/coolledux-controller/internal/text"
 )
+
+// Telemetry globals: resolved lazily from the global providers that
+// telemetry.New installs. No-op when OTel is disabled.
+var (
+	ctrlTracer             = otel.Tracer("github.com/liskl/coolledux-controller/internal/controller")
+	ctrlMeter              = otel.Meter("github.com/liskl/coolledux-controller/internal/controller")
+	programUploadDuration  metric.Float64Histogram
+	programUploadBytes     metric.Int64Histogram
+	programUploadsTotal    metric.Int64Counter
+)
+
+func init() {
+	var err error
+	programUploadDuration, err = ctrlMeter.Float64Histogram(
+		"coolledux.program.upload.duration",
+		metric.WithDescription("Duration of a program upload (all chunks + acks)"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		slog.Default().Warn("controller: upload duration histogram failed", "error", err)
+	}
+	programUploadBytes, err = ctrlMeter.Int64Histogram(
+		"coolledux.program.upload.bytes",
+		metric.WithDescription("Compressed size of uploaded program payloads"),
+		metric.WithUnit("By"),
+	)
+	if err != nil {
+		slog.Default().Warn("controller: upload bytes histogram failed", "error", err)
+	}
+	programUploadsTotal, err = ctrlMeter.Int64Counter(
+		"coolledux.program.uploads.total",
+		metric.WithDescription("Count of program upload attempts, labeled by outcome"),
+	)
+	if err != nil {
+		slog.Default().Warn("controller: uploads counter failed", "error", err)
+	}
+}
+
+// startSpan is a tiny helper to keep the per-method boilerplate short.
+// It returns the ctx with the span attached plus a deferred-friendly
+// closer that stamps errors onto the span before ending it.
+func startSpan(ctx context.Context, name string, attrs ...attribute.KeyValue) (context.Context, func(*error)) {
+	ctx, span := ctrlTracer.Start(ctx, name, trace.WithAttributes(attrs...))
+	return ctx, func(errp *error) {
+		if errp != nil && *errp != nil {
+			span.RecordError(*errp)
+			span.SetStatus(codes.Error, (*errp).Error())
+		}
+		span.End()
+	}
+}
 
 // Controller orchestrates BLE communication with the CoolLEDUX LED matrix.
 // It manages connection state, sends commands, and handles program uploads.
@@ -84,7 +142,9 @@ func (c *Controller) Disconnect(ctx context.Context) error {
 }
 
 // SetPower turns the display on or off.
-func (c *Controller) SetPower(ctx context.Context, on bool) error {
+func (c *Controller) SetPower(ctx context.Context, on bool) (err error) {
+	ctx, end := startSpan(ctx, "controller.set_power", attribute.Bool("power.on", on))
+	defer end(&err)
 	cmd := protocol.BuildPowerCommand(on)
 	resp, err := c.transport.SendAndWait(ctx, cmd, protocol.CommandTimeout)
 	if err != nil {
@@ -98,7 +158,9 @@ func (c *Controller) SetPower(ctx context.Context, on bool) error {
 }
 
 // SetBrightness sets the display brightness (0-255).
-func (c *Controller) SetBrightness(ctx context.Context, brightness uint8) error {
+func (c *Controller) SetBrightness(ctx context.Context, brightness uint8) (err error) {
+	ctx, end := startSpan(ctx, "controller.set_brightness", attribute.Int("brightness", int(brightness)))
+	defer end(&err)
 	cmd := protocol.BuildBrightnessCommand(brightness)
 	resp, err := c.transport.SendAndWait(ctx, cmd, protocol.CommandTimeout)
 	if err != nil {
@@ -487,7 +549,17 @@ func (c *Controller) sendControl(ctx context.Context, cmd []byte) error {
 // matrix and is `width` × `height` pixels. A width or height of 0 fills the
 // remaining display from the offset. fit chooses how the source image is
 // mapped onto the region.
-func (c *Controller) DisplayImage(ctx context.Context, imgData []byte, mode models.TextShowMode, speed, stayTime uint8, fit ledimage.FitMode, x, y, width, height int) error {
+func (c *Controller) DisplayImage(ctx context.Context, imgData []byte, mode models.TextShowMode, speed, stayTime uint8, fit ledimage.FitMode, x, y, width, height int) (err error) {
+	ctx, end := startSpan(ctx, "controller.display_image",
+		attribute.Int("image.input_bytes", len(imgData)),
+		attribute.String("image.mode", mode.String()),
+		attribute.Int("image.x", x),
+		attribute.Int("image.y", y),
+		attribute.Int("image.width", width),
+		attribute.Int("image.height", height),
+	)
+	defer end(&err)
+
 	img, err := ledimage.DecodeImage(imgData)
 	if err != nil {
 		return fmt.Errorf("decoding image: %w", err)
@@ -538,7 +610,15 @@ func (c *Controller) resolveRegion(x, y, width, height int) (int, int, int, int,
 // DisplayGIF decodes a GIF, extracts and resizes each frame, encodes them
 // as column-major RGB444, wraps them in an animation program, and uploads
 // the result to the device. Region semantics match DisplayImage.
-func (c *Controller) DisplayGIF(ctx context.Context, gifData []byte, frameDuration uint16, fit ledimage.FitMode, x, y, width, height int) error {
+func (c *Controller) DisplayGIF(ctx context.Context, gifData []byte, frameDuration uint16, fit ledimage.FitMode, x, y, width, height int) (err error) {
+	ctx, end := startSpan(ctx, "controller.display_gif",
+		attribute.Int("gif.input_bytes", len(gifData)),
+		attribute.Int("gif.frame_duration_ms", int(frameDuration)),
+		attribute.Int("gif.width", width),
+		attribute.Int("gif.height", height),
+	)
+	defer end(&err)
+
 	g, err := ledimage.DecodeGIF(gifData)
 	if err != nil {
 		return fmt.Errorf("decoding gif: %w", err)
@@ -613,7 +693,14 @@ func (c *Controller) DisplayRawGIF(ctx context.Context, gifData []byte, x, y, wi
 //
 // fontSize is reserved for future multi-size support; only the 16-row font is
 // shipped today.
-func (c *Controller) DisplayText(ctx context.Context, s string, mode models.TextShowMode, speed, stayTime uint8, fontSize int, color uint32, fontName string) error {
+func (c *Controller) DisplayText(ctx context.Context, s string, mode models.TextShowMode, speed, stayTime uint8, fontSize int, color uint32, fontName string) (err error) {
+	ctx, end := startSpan(ctx, "controller.display_text",
+		attribute.Int("text.length", utf8.RuneCountInString(s)),
+		attribute.String("text.mode", mode.String()),
+		attribute.Int("text.color", int(color&0xFFFFFF)),
+		attribute.String("text.font", fontName),
+	)
+	defer end(&err)
 	width := c.cfg.Display.Columns
 	height := c.cfg.Display.Rows
 
@@ -725,7 +812,29 @@ func (c *Controller) OverrideStateForTest(state DeviceState) {
 // sendProgram compresses the program payload with LZSS, builds the start
 // packet, sends it and waits for an ack, then sends each data chunk and
 // waits for an ack after each one.
-func (c *Controller) sendProgram(ctx context.Context, programPayload []byte) error {
+func (c *Controller) sendProgram(ctx context.Context, programPayload []byte) (err error) {
+	start := time.Now()
+	ctx, span := ctrlTracer.Start(ctx, "controller.program_upload",
+		trace.WithAttributes(attribute.Int("program.raw_bytes", len(programPayload))),
+	)
+	outcome := "success"
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			outcome = "error"
+		}
+		span.End()
+		if programUploadDuration != nil {
+			programUploadDuration.Record(ctx, time.Since(start).Seconds(),
+				metric.WithAttributes(attribute.String("outcome", outcome)))
+		}
+		if programUploadsTotal != nil {
+			programUploadsTotal.Add(ctx, 1,
+				metric.WithAttributes(attribute.String("outcome", outcome)))
+		}
+	}()
+
 	c.mu.Lock()
 	c.programState = ProgramSendingStart
 	c.mu.Unlock()
@@ -739,13 +848,25 @@ func (c *Controller) sendProgram(ctx context.Context, programPayload []byte) err
 	}()
 
 	// Compute CRC over uncompressed data.
+	_, crcSpan := ctrlTracer.Start(ctx, "program.crc")
 	rawCRC := protocol.Calculate(programPayload)
 	rawLen := len(programPayload)
+	crcSpan.End()
 
 	// Compress with LZSS. Use compressed only if it's smaller.
+	_, compressSpan := ctrlTracer.Start(ctx, "program.compress")
 	compressed, wasCompressed := protocol.Compress(programPayload)
 	if !wasCompressed {
 		compressed = programPayload
+	}
+	compressSpan.SetAttributes(
+		attribute.Bool("program.compressed", wasCompressed),
+		attribute.Int("program.compressed_bytes", len(compressed)),
+	)
+	compressSpan.End()
+	if programUploadBytes != nil {
+		programUploadBytes.Record(ctx, int64(len(compressed)),
+			metric.WithAttributes(attribute.Bool("compressed", wasCompressed)))
 	}
 
 	// Build and send the program start packet.
@@ -768,6 +889,15 @@ func (c *Controller) sendProgram(ctx context.Context, programPayload []byte) err
 	c.programState = ProgramSendingData
 	c.mu.Unlock()
 
+	// chunksCtx is scoped to the per-chunk send/ack work. Critically, do
+	// NOT reassign the outer ctx to chunksCtx: the deferred metric
+	// recording above uses ctx, and the SDK's exemplar capture reads the
+	// SpanContext (immutable once Start returns) at Record time. If we
+	// shadowed ctx here, upload-level metrics would carry exemplars
+	// pointing at the chunks span instead of the program_upload span,
+	// breaking trace<->metric correlation in Tempo/Grafana.
+	chunksCtx, chunksSpan := ctrlTracer.Start(ctx, "program.chunks")
+	defer chunksSpan.End()
 	totalLen := uint32(len(compressed))
 	chunkIdx := 0
 	for offset := 0; offset < len(compressed); offset += protocol.ProgramChunkSize {
@@ -787,14 +917,14 @@ func (c *Controller) sendProgram(ctx context.Context, programPayload []byte) err
 			"totalCompressed", len(compressed),
 		)
 
-		if err := c.transport.SendCommand(ctx, chunkCmd); err != nil {
+		if err := c.transport.SendCommand(chunksCtx, chunkCmd); err != nil {
 			c.setProgramError()
 			return fmt.Errorf("sending program chunk %d: %w", chunkIdx, err)
 		}
 
 		// Wait for the device to process the chunk. The device sends a
 		// notification ACK, but timing is tight. Use a generous wait.
-		resp, err := c.transport.WaitForResponse(ctx, 5*time.Second)
+		resp, err := c.transport.WaitForResponse(chunksCtx, 5*time.Second)
 		if err != nil {
 			c.logger.Warn("no ACK for chunk, continuing", "chunk", chunkIdx, "error", err)
 		} else {
@@ -807,6 +937,12 @@ func (c *Controller) sendProgram(ctx context.Context, programPayload []byte) err
 	c.mu.Lock()
 	c.programState = ProgramComplete
 	c.mu.Unlock()
+
+	chunksSpan.SetAttributes(attribute.Int("program.chunk_count", chunkIdx))
+	span.SetAttributes(
+		attribute.Int("program.compressed_bytes", len(compressed)),
+		attribute.Int("program.chunk_count", chunkIdx),
+	)
 
 	c.logger.Info("program upload complete",
 		"rawSize", rawLen,

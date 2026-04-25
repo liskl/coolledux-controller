@@ -218,15 +218,37 @@ func (o *OTelConfig) ResolveProtocol(signal OTelSignalConfig) string {
 // is set: YAML/Viper-derived top-level or per-signal endpoint, or one of
 // the standard OTLP env vars the SDK reads natively.
 func (o *OTelConfig) endpointConfigured() bool {
-	if o.Endpoint != "" || o.Traces.Endpoint != "" || o.Metrics.Endpoint != "" || o.Logs.Endpoint != "" {
-		return true
+	endpoint, _ := o.ResolvedEndpoint()
+	return endpoint != ""
+}
+
+// ResolvedEndpoint returns the effective OTLP endpoint plus a label
+// describing where it came from. Used by main's startup log so
+// operators can see at a glance whether the controller is using YAML,
+// COOLLEDUX_*, or one of the SDK-native OTEL_EXPORTER_OTLP_*_ENDPOINT
+// env vars. Returns ("", "") when nothing is configured.
+//
+// The lookup mirrors the precedence the running service actually
+// observes: COOLLEDUX_OTEL_* env vars (already merged into the cfg
+// struct by Viper) > YAML (also already merged) > per-signal cfg
+// fields > OTEL_EXPORTER_OTLP_ENDPOINT > per-signal SDK env vars.
+func (o *OTelConfig) ResolvedEndpoint() (endpoint, source string) {
+	switch {
+	case o.Endpoint != "":
+		return o.Endpoint, "config (otel.endpoint)"
+	case o.Traces.Endpoint != "":
+		return o.Traces.Endpoint, "config (otel.traces.endpoint)"
+	case o.Metrics.Endpoint != "":
+		return o.Metrics.Endpoint, "config (otel.metrics.endpoint)"
+	case o.Logs.Endpoint != "":
+		return o.Logs.Endpoint, "config (otel.logs.endpoint)"
 	}
 	for _, name := range otelEndpointEnvVars {
-		if os.Getenv(name) != "" {
-			return true
+		if v := os.Getenv(name); v != "" {
+			return v, "env (" + name + ")"
 		}
 	}
-	return false
+	return "", ""
 }
 
 // Validate checks invariants that would make OTel init fail late: an

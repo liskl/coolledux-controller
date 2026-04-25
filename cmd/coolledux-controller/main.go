@@ -48,8 +48,10 @@ func main() {
 	}
 	logger := slog.New(tel.SlogHandler())
 	if tel.Enabled() {
+		endpoint, endpointSource := cfg.OTel.ResolvedEndpoint()
 		logger.Info("opentelemetry enabled",
-			"endpoint", cfg.OTel.Endpoint,
+			"endpoint", endpoint,
+			"endpoint_source", endpointSource,
 			"protocol", cfg.OTel.Protocol,
 			"traces", cfg.OTel.Traces.Enabled,
 			"metrics", cfg.OTel.Metrics.Enabled,

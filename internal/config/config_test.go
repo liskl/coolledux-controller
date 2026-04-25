@@ -451,3 +451,55 @@ func TestOTelConfig_ResolveEndpoint_InheritsTop(t *testing.T) {
 		t.Errorf("ResolveEndpoint = %q, want top", got)
 	}
 }
+
+func TestOTelConfig_ResolvedEndpoint_PrecedenceOrder(t *testing.T) {
+	// Clear any inherited OTEL_* env so per-test scenarios are clean.
+	clearEnv := func(t *testing.T) {
+		t.Helper()
+		for _, name := range otelEndpointEnvVars {
+			t.Setenv(name, "")
+		}
+	}
+
+	t.Run("no source returns empty", func(t *testing.T) {
+		clearEnv(t)
+		ep, src := (&OTelConfig{}).ResolvedEndpoint()
+		if ep != "" || src != "" {
+			t.Errorf("got (%q, %q), want both empty", ep, src)
+		}
+	})
+
+	t.Run("top-level config beats env", func(t *testing.T) {
+		clearEnv(t)
+		t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "env:4317")
+		c := &OTelConfig{Endpoint: "yaml:4317"}
+		ep, src := c.ResolvedEndpoint()
+		if ep != "yaml:4317" {
+			t.Errorf("endpoint = %q, want yaml:4317 (config wins over env)", ep)
+		}
+		if src != "config (otel.endpoint)" {
+			t.Errorf("source = %q, want config", src)
+		}
+	})
+
+	t.Run("per-signal config used when top-level blank", func(t *testing.T) {
+		clearEnv(t)
+		c := &OTelConfig{Traces: OTelSignalConfig{Endpoint: "tempo:4317"}}
+		ep, src := c.ResolvedEndpoint()
+		if ep != "tempo:4317" || src != "config (otel.traces.endpoint)" {
+			t.Errorf("got (%q, %q), want (tempo:4317, config traces)", ep, src)
+		}
+	})
+
+	t.Run("env reported when no config source", func(t *testing.T) {
+		clearEnv(t)
+		t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "tempo-env:4317")
+		ep, src := (&OTelConfig{}).ResolvedEndpoint()
+		if ep != "tempo-env:4317" {
+			t.Errorf("endpoint = %q, want tempo-env:4317", ep)
+		}
+		if src != "env (OTEL_EXPORTER_OTLP_TRACES_ENDPOINT)" {
+			t.Errorf("source = %q, want env (per-signal var)", src)
+		}
+	})
+}

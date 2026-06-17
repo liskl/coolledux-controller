@@ -5,7 +5,7 @@ go 1.25.5
 require (
 	github.com/disintegration/imaging v1.6.2
 	github.com/eclipse/paho.mqtt.golang v1.5.1
-	github.com/gofiber/fiber/v2 v2.52.12
+	github.com/gofiber/fiber/v2 v2.52.13
 	github.com/spf13/viper v1.21.0
 	github.com/zachomedia/go-bdf v0.0.0-20220611021443-a3af701111be
 	golang.org/x/image v0.39.0

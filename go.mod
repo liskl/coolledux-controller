@@ -8,7 +8,7 @@ require (
 	github.com/gofiber/fiber/v2 v2.52.12
 	github.com/spf13/viper v1.21.0
 	github.com/zachomedia/go-bdf v0.0.0-20220611021443-a3af701111be
-	golang.org/x/image v0.39.0
+	golang.org/x/image v0.41.0
 	gopkg.in/yaml.v3 v3.0.1
 	tinygo.org/x/bluetooth v0.14.0
 )
@@ -47,5 +47,5 @@ require (
 	golang.org/x/net v0.44.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.36.0 // indirect
-	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 )
